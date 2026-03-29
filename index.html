@@ -932,13 +932,29 @@ async function loadData() {
     const today = et.toISOString().slice(0,10);
     const season = today.slice(0,4); // dynamically use current year
 
-    // 1. Today's schedule
-    const sched = await fetchJSON(`${API}/schedule?sportId=1&date=${today}&gameType=R&hydrate=linescore`);
+    // 1. Today's schedule with probable pitchers + lineups
+    const sched = await fetchJSON(`${API}/schedule?sportId=1&date=${today}&gameType=R&hydrate=linescore,probablePitcher,lineups`);
     const todayGames = sched.dates?.[0]?.games || [];
-    todaySchedule = todayGames; // store globally for Games tab
+    todaySchedule = todayGames;
     liveGameIds = todayGames
       .filter(g => g.status.abstractGameState === 'Live')
       .map(g => g.gamePk);
+
+    // Build team → opponent pitcher map
+    // Away team faces HOME pitcher; home team faces AWAY pitcher
+    const teamPitcherMap = {}; // teamId -> { pitcher: {id, fullName}, gamePk, gameStatus, oppTeamName }
+    const teamGameMap = {};    // teamId -> full game obj (for Games tab)
+    todayGames.forEach(g => {
+      const awayId = g.teams.away.team.id;
+      const homeId = g.teams.home.team.id;
+      const awayPP = g.teams.away.probablePitcher || null;
+      const homePP = g.teams.home.probablePitcher || null;
+      const status = g.status.abstractGameState;
+      teamPitcherMap[awayId] = { pitcher: homePP, gamePk: g.gamePk, gameStatus: status, oppTeamName: g.teams.home.team.name };
+      teamPitcherMap[homeId] = { pitcher: awayPP, gamePk: g.gamePk, gameStatus: status, oppTeamName: g.teams.away.team.name };
+      teamGameMap[awayId] = g;
+      teamGameMap[homeId] = g;
+    });
 
     updateLiveBar(todayGames);
 
@@ -972,6 +988,7 @@ async function loadData() {
         id,
         name: s.player.fullName,
         team: getTeamAbb(s.team),
+        teamId: s.team?.id || null,
         ab:   st.atBats || 0,
         pa:   st.plateAppearances || 0,
         h:    st.hits || 0,
@@ -990,6 +1007,8 @@ async function loadData() {
         rbi_ab:st.atBats  ? st.rbi/st.atBats             : 0,
         bb_pa: st.plateAppearances ? st.baseOnBalls/st.plateAppearances : 0,
         k_ab:  st.atBats  ? st.strikeOuts/st.atBats      : 0,
+        // matchup — filled after schedule fetch
+        matchup: teamPitcherMap[s.team?.id] || null,
         // streaks filled in next
         streak_hits_hot:0, streak_hits_cold:0,
         streak_hr_hot:0,   streak_hr_cold:0,
@@ -1005,6 +1024,14 @@ async function loadData() {
     document.getElementById('content-area').innerHTML =
       `<div class="state-box"><div class="spinner"></div><div class="msg">CALCULATING STREAKS…<br><span style="font-size:9px;color:var(--muted)">fetching game logs for ${topIds.length} players</span></div></div>`;
     await fetchStreaksInBatches(topIds, playerMap, season);
+
+    // 4. Fetch pitcher stats for all probable pitchers today (blend 2026+2025)
+    const pitcherIds = [...new Set(
+      Object.values(teamPitcherMap)
+        .map(m => m.pitcher?.id)
+        .filter(Boolean)
+    )];
+    await fetchPitcherStats(pitcherIds, season, priorSeason);
 
     masterPlayers = Object.values(playerMap).sort((a,b) => b.ab - a.ab);
     allPlayers = masterPlayers.filter(p => p.ab >= currentMinAB);
@@ -1089,7 +1116,41 @@ function calcCold(log) {
   return c;
 }
 
-// ─── LIVE BAR ─────────────────────────────────────────────
+// ─── PITCHER STATS ────────────────────────────────────────
+const pitcherStatsMap = {}; // pitcherId -> blended stats object
+
+async function fetchPitcherStats(ids, season, priorSeason) {
+  await Promise.all(ids.map(async id => {
+    try {
+      const [cur, prior] = await Promise.all([
+        fetchJSON(`${API}/people/${id}/stats?stats=season&group=pitching&season=${season}&gameType=R`),
+        fetchJSON(`${API}/people/${id}/stats?stats=season&group=pitching&season=${priorSeason}&gameType=R`),
+      ]);
+      const cs = cur.stats?.[0]?.splits?.[0]?.stat || {};
+      const ps = prior.stats?.[0]?.splits?.[0]?.stat || {};
+      // Blend: use current season if meaningful IP, else blend with prior
+      const curIP  = parseFloat(cs.inningsPitched || 0);
+      const prIP   = parseFloat(ps.inningsPitched || 0);
+      const totalIP = curIP + prIP;
+      const totalH  = (cs.hits||0) + (ps.hits||0);
+      const totalHR = (cs.homeRuns||0) + (ps.homeRuns||0);
+      const totalBB = (cs.baseOnBalls||0) + (ps.baseOnBalls||0);
+      const totalK  = (cs.strikeOuts||0) + (ps.strikeOuts||0);
+      const r = n => totalIP > 0 ? (n * 9 / totalIP).toFixed(2) : '—';
+      pitcherStatsMap[id] = {
+        era:  cs.era  || ps.era  || '—',
+        whip: cs.whip || ps.whip || '—',
+        baa:  cs.avg  || ps.avg  || '—',
+        h9:   r(totalH),
+        hr9:  r(totalHR),
+        bb9:  r(totalBB),
+        k9:   r(totalK),
+        ip:   totalIP.toFixed(1),
+        season: curIP > 10 ? season : priorSeason,
+      };
+    } catch(e) { /* skip */ }
+  }));
+}
 function updateLiveBar(games) {
   const bar = document.getElementById('live-games-bar');
   const badge = document.getElementById('live-badge');
@@ -1115,6 +1176,50 @@ function updateLiveBar(games) {
     }
   }
 }
+
+// ─── MATCHUP CELL ─────────────────────────────────────────
+function buildMatchupCell(p) {
+  const m = p.matchup;
+  if (!m) return `<span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted)">Off today</span>`;
+  if (!m.pitcher) return `<span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted)">TBD</span>`;
+
+  const ps = pitcherStatsMap[m.pitcher.id] || null;
+  const cfg = STAT_CONFIG[currentStat];
+
+  // Pick the most relevant pitcher stat for the current tab
+  const relevantStat = {
+    hits:  ps ? { lbl:'H/9',  val: ps.h9,  good: parseFloat(ps.h9)>=9.5 }  : null,
+    hr:    ps ? { lbl:'HR/9', val: ps.hr9, good: parseFloat(ps.hr9)>=1.2 } : null,
+    rbi:   ps ? { lbl:'H/9',  val: ps.h9,  good: parseFloat(ps.h9)>=9.5 }  : null,
+    walks: ps ? { lbl:'BB/9', val: ps.bb9, good: parseFloat(ps.bb9)>=3.2 } : null,
+    k:     ps ? { lbl:'K/9',  val: ps.k9,  good: parseFloat(ps.k9)<=7.0 }  : null,
+  }[currentStat];
+
+  const pitcherName = m.pitcher.fullName;
+  const lastName = pitcherName.split(' ').pop();
+  const statColor = relevantStat?.good ? 'var(--hot)' : 'var(--green)';
+  const statHtml = relevantStat
+    ? `<span style="font-family:'DM Mono',monospace;font-size:9px;color:${statColor};margin-left:5px">${relevantStat.lbl} ${relevantStat.val}</span>`
+    : '';
+
+  const eraHtml = ps
+    ? `<span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted)">ERA ${ps.era} · WHIP ${ps.whip}</span>`
+    : `<span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted)">—</span>`;
+
+  return `
+  <div style="display:flex;align-items:center;gap:8px;min-width:180px">
+    <div style="width:24px;height:24px;border-radius:50%;background:var(--border2);overflow:hidden;flex-shrink:0">
+      <img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_60,q_auto:best/v1/people/${m.pitcher.id}/headshot/silo/current"
+           style="width:100%;height:100%;object-fit:cover;border-radius:50%"
+           onerror="this.style.display='none'" alt="">
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:600;white-space:nowrap">${lastName}${statHtml}</div>
+      <div>${eraHtml}</div>
+    </div>
+  </div>`;
+}
+
 
 function renderContent() {
   const cfg = STAT_CONFIG[currentStat];
@@ -1168,6 +1273,7 @@ function renderContent() {
       <th onclick="toggleSort('blendedAvg')" class="${sortCol==='blendedAvg'?'sort-'+sortDir:''}">AVG <span style="font-size:8px;color:var(--muted)">'25+'26</span></th>
       <th onclick="toggleSort('hPerGame')" class="${sortCol==='hPerGame'?'sort-'+sortDir:''}">H/G</th>
       <th>Last 10G</th>
+      <th>Today's Matchup</th>
     </tr></thead>`;
 
   let html = '';
@@ -1267,6 +1373,7 @@ function buildRow(p, rank, streakVal, type, pct, rateVal, cfg, logKey) {
     <td class="avg">${avgDisplay}</td>
     <td class="mono ${hgClass}">${hgStr}</td>
     <td><div class="gl-dots">${logDots}</div></td>
+    <td>${buildMatchupCell(p)}</td>
   </tr>`;
 }
 
@@ -1360,39 +1467,75 @@ function renderGamesGrid() {
     const status = g.status.abstractGameState;
     const isLive = status === 'Live';
     const isFinal = status === 'Final';
+    const isUpcoming = status === 'Preview';
     const ls = g.linescore || {};
-    const awayR = ls.teams?.away?.runs ?? (isFinal||isLive ? '?' : '');
-    const homeR = ls.teams?.home?.runs ?? (isFinal||isLive ? '?' : '');
+    const awayR = ls.teams?.away?.runs ?? '';
+    const homeR = ls.teams?.home?.runs ?? '';
     const inn = ls.currentInning ? `${ls.inningHalf === 'Bottom' ? '▼' : '▲'}${ls.currentInning}` : '';
     const awayAbb = getTeamAbb(g.teams.away.team);
     const homeAbb = getTeamAbb(g.teams.home.team);
     const awayName = g.teams.away.team.name;
     const homeName = g.teams.home.team.name;
+    const awayPP = g.teams.away.probablePitcher?.fullName?.split(' ').pop() || 'TBD';
+    const homePP = g.teams.home.probablePitcher?.fullName?.split(' ').pop() || 'TBD';
     const statusLabel = isLive ? `🔴 LIVE ${inn}` : isFinal ? `✓ FINAL` : `⏰ UPCOMING`;
     const statusClass = isLive ? 'live' : isFinal ? 'final' : 'preview';
+    const scoreHtml = (isFinal||isLive) && awayR !== ''
+      ? `<div class="game-score">${awayR} — ${homeR}</div>${inn ? `<div class="game-inning">${inn}</div>` : ''}`
+      : `<div class="game-score" style="color:var(--muted);font-size:20px">VS</div>`;
 
     return `
-    <div class="game-card ${isLive ? 'live-card' : ''}" onclick="openGameDetail(${g.gamePk}, '${awayAbb}', '${homeAbb}', '${awayName}', '${homeName}', ${awayR||0}, ${homeR||0}, '${statusLabel}')">
+    <div class="game-card ${isLive ? 'live-card' : ''}" onclick="openGameDetail(${g.gamePk}, '${awayAbb}', '${homeAbb}', '${awayName.replace(/'/g,"\\'")}', '${homeName.replace(/'/g,"\\'")}', ${awayR||0}, ${homeR||0}, '${statusLabel}')">
       <div class="game-card-status ${statusClass}">${statusLabel}</div>
       <div class="game-card-matchup">
         <div class="game-team">
           <div class="game-team-abb">${awayAbb}</div>
           <div class="game-team-name">${awayName}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px">vs ${homePP}</div>
         </div>
-        <div class="game-score-wrap">
-          ${isFinal||isLive ? `<div class="game-score">${awayR} — ${homeR}</div>` : `<div class="game-score" style="color:var(--muted);font-size:20px">VS</div>`}
-          ${inn ? `<div class="game-inning">${inn}</div>` : ''}
-        </div>
+        <div class="game-score-wrap">${scoreHtml}</div>
         <div class="game-team">
           <div class="game-team-abb">${homeAbb}</div>
           <div class="game-team-name">${homeName}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);margin-top:2px">vs ${awayPP}</div>
         </div>
       </div>
-      <div class="game-card-footer">Click to see streak leaderboard</div>
+      <div class="game-card-footer">Click to see streak leaderboard →</div>
     </div>`;
   }).join('');
 
   container.innerHTML = `<div class="games-grid">${cards}</div>`;
+}
+
+// Build pitcher info box for game detail panels
+function buildPitcherBox(pp) {
+  if (!pp) {
+    return `<div style="padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);font-family:'DM Mono',monospace;font-size:10px;color:var(--muted)">Probable Pitcher: TBD</div>`;
+  }
+  const ps = pitcherStatsMap[pp.id] || null;
+  const initials = pp.fullName.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const statsHtml = ps ? `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px">
+      <span>ERA <strong style="color:var(--text)">${ps.era}</strong></span>
+      <span>WHIP <strong style="color:var(--text)">${ps.whip}</strong></span>
+      <span>H/9 <strong style="color:${parseFloat(ps.h9)>=9.5?'var(--hot)':'var(--green)'}">${ps.h9}</strong></span>
+      <span>HR/9 <strong style="color:${parseFloat(ps.hr9)>=1.2?'var(--hot)':'var(--green)'}">${ps.hr9}</strong></span>
+      <span>BB/9 <strong style="color:${parseFloat(ps.bb9)>=3.5?'var(--hot)':'var(--green)'}">${ps.bb9}</strong></span>
+      <span>K/9 <strong style="color:${parseFloat(ps.k9)>=8.5?'var(--green)':'var(--muted2)'}">${ps.k9}</strong></span>
+    </div>` : '<div style="color:var(--muted);margin-top:2px">No stats available</div>';
+
+  return `
+  <div style="padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+    <div style="width:36px;height:36px;border-radius:50%;background:var(--border2);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:9px;color:var(--muted2)">
+      <img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_80,q_auto:best/v1/people/${pp.id}/headshot/silo/current"
+           style="width:100%;height:100%;object-fit:cover;border-radius:50%"
+           onerror="this.style.display='none';this.parentElement.textContent='${initials}'" alt="">
+    </div>
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted2);flex:1">
+      <div style="font-size:12px;font-weight:600;color:var(--text)">${pp.fullName}</div>
+      ${statsHtml}
+    </div>
+  </div>`;
 }
 
 async function openGameDetail(gamePk, awayAbb, homeAbb, awayName, homeName, awayR, homeR, statusLabel) {
@@ -1410,6 +1553,7 @@ async function openGameDetail(gamePk, awayAbb, homeAbb, awayName, homeName, away
     const cfg = STAT_CONFIG[currentStat];
 
     const isUpcoming = statusLabel.includes('UPCOMING');
+    const gameObj = todaySchedule.find(g => g.gamePk === gamePk) || null;
 
     // Use ET date for schedule hydration
     const etOffset = -4;
@@ -1484,10 +1628,16 @@ async function openGameDetail(gamePk, awayAbb, homeAbb, awayName, homeName, away
       b.hotStreak !== a.hotStreak ? b.hotStreak - a.hotStreak : b.coldStreak - a.coldStreak
     );
 
-    function renderTeamPanel(teamAbb, teamName, rows) {
+    function renderTeamPanel(teamAbb, teamName, rows, gameObj, side) {
+      // Pitcher this team faces = opposite side's probable pitcher
+      const oppSide = side === 'away' ? 'home' : 'away';
+      const oppPP = gameObj?.teams?.[oppSide]?.probablePitcher || null;
+      const pitcherBox = buildPitcherBox(oppPP);
+
       if (!rows.length) {
         return `<div class="team-streak-panel">
           <div class="team-streak-panel-header"><span>${teamAbb} — ${teamName}</span></div>
+          ${pitcherBox}
           <div style="padding:20px;color:var(--muted);font-size:11px;text-align:center;font-family:'DM Mono',monospace">
             ${isUpcoming ? 'Lineup not yet posted' : 'No lineup data'}
           </div>
@@ -1528,6 +1678,7 @@ async function openGameDetail(gamePk, awayAbb, homeAbb, awayName, homeName, away
           <span>${teamAbb} — ${teamName}</span>
           <span style="font-size:10px;font-family:'DM Mono',monospace;color:var(--muted)">${cfg.hotLabel} ↓</span>
         </div>
+        ${buildPitcherBox(oppPP)}
         ${playerRows}
       </div>`;
     }
@@ -1545,8 +1696,8 @@ async function openGameDetail(gamePk, awayAbb, homeAbb, awayName, homeName, away
     </div>
     <div class="game-stat-tabs pill-group" style="margin-bottom:16px">${statPills}</div>
     <div class="teams-split">
-      ${renderTeamPanel(awayAbb, awayName, awayRows)}
-      ${renderTeamPanel(homeAbb, homeName, homeRows)}
+      ${renderTeamPanel(awayAbb, awayName, awayRows, gameObj, 'away')}
+      ${renderTeamPanel(homeAbb, homeName, homeRows, gameObj, 'home')}
     </div>`;
 
   } catch(e) {

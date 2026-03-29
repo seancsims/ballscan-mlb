@@ -926,10 +926,8 @@ async function loadData() {
 
   try {
     // Use ET date to match MLB schedule (avoids UTC rollover issues)
-    const etOffset = -4; // EDT (use -5 for EST Nov-Mar)
-    const now = new Date();
-    const et = new Date(now.getTime() + (now.getTimezoneOffset() + etOffset * -60) * 60000);
-    const today = et.toISOString().slice(0,10);
+    // ET date: subtract 4h from UTC (EDT). Works regardless of user's local timezone.
+    const today = new Date(Date.now() - 4 * 3600000).toISOString().slice(0,10);
     const season = today.slice(0,4); // dynamically use current year
 
     // 1. Today's schedule with probable pitchers + lineups
@@ -1556,21 +1554,18 @@ async function openGameDetail(gamePk, awayAbb, homeAbb, awayName, homeName, away
     const gameObj = todaySchedule.find(g => g.gamePk === gamePk) || null;
 
     // Use ET date for schedule hydration
-    const etOffset = -4;
-    const now = new Date();
-    const et = new Date(now.getTime() + (now.getTimezoneOffset() + etOffset * -60) * 60000);
-    const today = et.toISOString().slice(0,10);
+    const today = new Date(Date.now() - 4 * 3600000).toISOString().slice(0,10);
 
     let awayRows = [], homeRows = [];
 
     if (isUpcoming) {
-      // For upcoming: pull lineup from schedule hydration
+      // Try official lineup first; fall back to roster/master players sorted by AB
       const schedResp = await fetchJSON(`${API}/schedule?sportId=1&date=${today}&gameType=R&hydrate=lineups`);
       const games = schedResp.dates?.[0]?.games || [];
       const gameData = games.find(g => g.gamePk === gamePk);
       const lineups = gameData?.lineups || {};
-      const awayPlayers = lineups.awayPlayers || [];
-      const homePlayers = lineups.homePlayers || [];
+      const awayLineup = lineups.awayPlayers || [];
+      const homeLineup = lineups.homePlayers || [];
 
       function buildFromLineup(players) {
         return players.map(p => {
@@ -1587,8 +1582,22 @@ async function openGameDetail(gamePk, awayAbb, homeAbb, awayName, homeName, away
         }).filter(r => r.name !== '—');
       }
 
-      awayRows = buildFromLineup(awayPlayers);
-      homeRows = buildFromLineup(homePlayers);
+      // If no official lineup posted, fall back to top hitters from masterPlayers by team
+      function buildFromMaster(teamId) {
+        return masterPlayers
+          .filter(p => p.teamId === teamId && p.ab > 0)
+          .sort((a,b) => b.ab - a.ab)
+          .slice(0, 9)
+          .map(p => ({
+            pid: p.id, name: p.name, pos: '', todaySummary: '—',
+            hotStreak: p[hotKey] || 0, coldStreak: p[coldKey] || 0, streakData: p,
+          }));
+      }
+
+      const awayTeamId = gameObj?.teams?.away?.team?.id;
+      const homeTeamId = gameObj?.teams?.home?.team?.id;
+      awayRows = awayLineup.length ? buildFromLineup(awayLineup) : buildFromMaster(awayTeamId);
+      homeRows = homeLineup.length ? buildFromLineup(homeLineup) : buildFromMaster(homeTeamId);
 
     } else {
       // For live/final: use boxscore (has today's stats)
@@ -1639,7 +1648,7 @@ async function openGameDetail(gamePk, awayAbb, homeAbb, awayName, homeName, away
           <div class="team-streak-panel-header"><span>${teamAbb} — ${teamName}</span></div>
           ${pitcherBox}
           <div style="padding:20px;color:var(--muted);font-size:11px;text-align:center;font-family:'DM Mono',monospace">
-            ${isUpcoming ? 'Lineup not yet posted' : 'No lineup data'}
+            ${isUpcoming ? 'No player data available' : 'No lineup data'}
           </div>
         </div>`;
       }
@@ -1720,10 +1729,7 @@ async function openPlayerModal(playerId) {
 
   try {
     // Determine current season
-    const etOffset = -4;
-    const now = new Date();
-    const et = new Date(now.getTime() + (now.getTimezoneOffset() + etOffset * -60) * 60000);
-    const season = et.toISOString().slice(0,4);
+    const season = new Date(Date.now() - 4 * 3600000).toISOString().slice(0,4);
 
     const player = masterPlayers.find(p => p.id === playerId);
     const initials = player?.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() || '??';

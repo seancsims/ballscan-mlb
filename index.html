@@ -1,0 +1,1671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BallScan — MLB Streak Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0b0e14;
+    --surface:   #111520;
+    --card:      #161c2b;
+    --border:    #1e2740;
+    --border2:   #252f4a;
+    --hot:       #ff5c3a;
+    --hot-dim:   rgba(255,92,58,.12);
+    --cold:      #38b6ff;
+    --cold-dim:  rgba(56,182,255,.12);
+    --gold:      #f0c040;
+    --green:     #3ddc97;
+    --text:      #e8eaf2;
+    --muted:     #5a6580;
+    --muted2:    #8090b0;
+    --accent:    #4f7fff;
+    --live:      #ff3e3e;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    min-height: 100vh;
+  }
+
+  /* ─── HEADER ─────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 18px 28px 14px;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+    background: rgba(11,14,20,.92);
+    backdrop-filter: blur(10px);
+    z-index: 100;
+  }
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 32px;
+    letter-spacing: 2px;
+    background: linear-gradient(135deg, #fff 30%, var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1;
+  }
+  .logo-sub {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    color: var(--muted2);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+  .header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  #live-badge {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,62,62,.12);
+    border: 1px solid rgba(255,62,62,.3);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--live);
+    letter-spacing: 1px;
+  }
+  #live-badge.active { display: flex; }
+  .live-dot {
+    width: 6px; height: 6px;
+    background: var(--live);
+    border-radius: 50%;
+    animation: pulse 1.2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50% { opacity: .4; transform: scale(0.7); }
+  }
+  #last-update {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: .5px;
+  }
+  #refresh-btn {
+    background: var(--card);
+    border: 1px solid var(--border2);
+    color: var(--muted2);
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    transition: all .15s;
+  }
+  #refresh-btn:hover { border-color: var(--accent); color: var(--text); }
+  #refresh-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* ─── LIVE GAMES BAR ──────────────────────── */
+  #live-games-bar {
+    display: none;
+    padding: 8px 28px;
+    background: rgba(255,62,62,.05);
+    border-bottom: 1px solid rgba(255,62,62,.15);
+    gap: 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  #live-games-bar.active { display: flex; }
+  .live-game-chip {
+    flex-shrink: 0;
+    background: rgba(255,62,62,.08);
+    border: 1px solid rgba(255,62,62,.2);
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--live);
+    white-space: nowrap;
+  }
+
+  /* ─── CONTROLS ────────────────────────────── */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .ctrl-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+  .pill-group { display: flex; gap: 4px; }
+  .pill {
+    background: var(--card);
+    border: 1px solid var(--border2);
+    color: var(--muted2);
+    padding: 5px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .pill:hover { border-color: var(--accent); color: var(--text); }
+  .pill.active-hot { background: var(--hot-dim); border-color: var(--hot); color: var(--hot); }
+  .pill.active-cold { background: var(--cold-dim); border-color: var(--cold); color: var(--cold); }
+  .pill.active-all { background: rgba(79,127,255,.12); border-color: var(--accent); color: var(--accent); }
+  .sep { width: 1px; height: 24px; background: var(--border); margin: 0 6px; }
+  .search-wrap {
+    margin-left: auto;
+    position: relative;
+  }
+  .search-wrap input {
+    background: var(--card);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    padding: 6px 12px 6px 30px;
+    border-radius: 6px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    width: 180px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .search-wrap input:focus { border-color: var(--accent); }
+  .search-wrap input::placeholder { color: var(--muted); }
+  .search-icon {
+    position: absolute;
+    left: 9px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    font-size: 13px;
+    pointer-events: none;
+  }
+
+  /* ─── MAIN LAYOUT ────────────────────────── */
+  .main { display: flex; gap: 0; }
+
+  /* ─── STAT TABS ──────────────────────────── */
+  .stat-nav {
+    width: 68px;
+    border-right: 1px solid var(--border);
+    padding: 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-height: calc(100vh - 130px);
+  }
+  .stat-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 12px 0;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: all .15s;
+    color: var(--muted);
+  }
+  .stat-tab:hover { color: var(--muted2); }
+  .stat-tab.active {
+    color: var(--text);
+    border-left-color: var(--accent);
+    background: rgba(79,127,255,.06);
+  }
+  .stat-tab .tab-icon { font-size: 18px; }
+  .stat-tab .tab-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* ─── CONTENT ────────────────────────────── */
+  .content { flex: 1; padding: 20px 28px; overflow: hidden; }
+
+  /* ─── SECTION HEADER ─────────────────────── */
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 1.5px;
+  }
+  .section-title.hot { color: var(--hot); }
+  .section-title.cold { color: var(--cold); }
+  .streak-meta {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+  .count-badge {
+    margin-left: auto;
+    background: var(--card);
+    border: 1px solid var(--border2);
+    border-radius: 20px;
+    padding: 2px 10px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted2);
+  }
+
+  /* ─── TABLE ──────────────────────────────── */
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 28px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 780px;
+  }
+  thead tr {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    padding: 9px 12px;
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition: color .15s;
+  }
+  th:hover { color: var(--muted2); }
+  th.sort-asc::after { content: ' ↑'; color: var(--accent); }
+  th.sort-desc::after { content: ' ↓'; color: var(--accent); }
+  th:first-child { width: 36px; text-align: center; }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background .1s;
+  }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,.025); }
+
+  td {
+    padding: 9px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  td:first-child {
+    text-align: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .player-cell { display: flex; align-items: center; gap: 10px; }
+  .player-avatar {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--border2);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    color: var(--muted2);
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .player-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+  .player-name { font-weight: 600; font-size: 13px; }
+  .player-team {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: .5px;
+    margin-top: 1px;
+  }
+  td.mono {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+  }
+  td.avg {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--muted2);
+  }
+
+  /* streak cell */
+  .streak-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .streak-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    line-height: 1;
+    min-width: 36px;
+    text-align: right;
+  }
+  .streak-num.hot { color: var(--hot); }
+  .streak-num.cold { color: var(--cold); }
+  .streak-bar-wrap {
+    flex: 1;
+    height: 4px;
+    background: var(--border2);
+    border-radius: 2px;
+    min-width: 60px;
+    max-width: 100px;
+    overflow: hidden;
+  }
+  .streak-bar {
+    height: 100%;
+    border-radius: 2px;
+    transition: width .3s ease;
+  }
+  .streak-bar.hot { background: linear-gradient(90deg, var(--hot), #ff9a3a); }
+  .streak-bar.cold { background: linear-gradient(90deg, var(--cold), #38ffd0); }
+
+  /* rate cells */
+  .rate-good { color: var(--green); }
+  .rate-mid  { color: var(--gold); }
+  .rate-low  { color: var(--muted2); }
+
+  /* ─── LOADING / ERROR ────────────────────── */
+  .state-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    gap: 12px;
+    color: var(--muted);
+  }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 2px solid var(--border2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .state-box .msg {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-align: center;
+  }
+
+  /* ─── MINI GAME LOG TOOLTIP ──────────────── */
+  .gl-dots {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+  }
+  .gl-dot {
+    width: 8px; height: 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .gl-dot.hit { background: var(--green); }
+  .gl-dot.no  { background: var(--border2); }
+  .gl-dot.partial { background: var(--gold); }
+
+  /* ─── RESPONSIVE ─────────────────────────── */
+  @media (max-width: 700px) {
+    header { padding: 12px 14px; }
+    .controls { padding: 10px 14px; }
+    .stat-nav { width: 52px; }
+    .content { padding: 14px; }
+  }
+
+  /* ─── PAGE TABS ──────────────────────────── */
+  .page-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    padding: 0 28px;
+  }
+  .page-tab {
+    padding: 10px 20px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all .15s;
+  }
+  .page-tab:hover { color: var(--muted2); }
+  .page-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+  /* ─── GAMES PAGE ─────────────────────────── */
+  #games-page { display: none; padding: 20px 28px; }
+  #games-page.active { display: block; }
+  #players-page { display: flex; }
+  #players-page.hidden { display: none; }
+
+  .games-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .game-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all .15s;
+    position: relative;
+    overflow: hidden;
+  }
+  .game-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .game-card.live-card { border-color: rgba(255,62,62,.3); }
+  .game-card.live-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--live), transparent);
+  }
+  .game-card-status {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .game-card-status.live { color: var(--live); }
+  .game-card-status.final { color: var(--muted); }
+  .game-card-status.preview { color: var(--gold); }
+  .game-card-matchup {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .game-team {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+  }
+  .game-team-abb {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    line-height: 1;
+    color: var(--text);
+  }
+  .game-team-name {
+    font-size: 10px;
+    color: var(--muted);
+    text-align: center;
+  }
+  .game-score-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .game-score {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 36px;
+    line-height: 1;
+    color: var(--text);
+    letter-spacing: 2px;
+  }
+  .game-inning {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: .5px;
+  }
+  .game-card-footer {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    text-align: center;
+    letter-spacing: .5px;
+  }
+
+  /* ─── GAME DETAIL ────────────────────────── */
+  #game-detail { display: none; }
+  #game-detail.active { display: block; }
+  .game-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .back-btn {
+    background: var(--card);
+    border: 1px solid var(--border2);
+    color: var(--muted2);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    transition: all .15s;
+  }
+  .back-btn:hover { border-color: var(--accent); color: var(--text); }
+  .game-detail-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 24px;
+    letter-spacing: 1px;
+  }
+  .game-detail-score {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--muted2);
+  }
+  .teams-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .team-streak-panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .team-streak-panel-header {
+    background: var(--surface);
+    padding: 10px 16px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 16px;
+    letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .game-player-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--border);
+    transition: background .1s;
+    cursor: pointer;
+  }
+  .game-player-row:last-child { border-bottom: none; }
+  .game-player-row:hover { background: rgba(255,255,255,.025); }
+  .game-player-rank {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .game-player-info { flex: 1; min-width: 0; }
+  .game-player-name { font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .game-player-stats { font-family: 'DM Mono', monospace; font-size: 9px; color: var(--muted); margin-top: 1px; }
+  .game-streak-badge {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 20px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .game-streak-badge.hot { color: var(--hot); }
+  .game-streak-badge.cold { color: var(--cold); }
+  .game-streak-badge.none { color: var(--border2); font-size: 12px; }
+  .game-today-line {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted2);
+    flex-shrink: 0;
+    text-align: right;
+    min-width: 60px;
+  }
+  .game-stat-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  /* ─── PLAYER MODAL ───────────────────────── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.7);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 20px;
+    overflow-y: auto;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: var(--card);
+    border: 1px solid var(--border2);
+    border-radius: 14px;
+    width: 100%;
+    max-width: 680px;
+    overflow: hidden;
+    animation: slideUp .2s ease;
+  }
+  @keyframes slideUp {
+    from { opacity:0; transform: translateY(16px); }
+    to   { opacity:1; transform: translateY(0); }
+  }
+  .modal-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-avatar {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: var(--border2);
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--muted2);
+    flex-shrink: 0;
+  }
+  .modal-avatar img { width:100%; height:100%; object-fit:cover; border-radius:50%; }
+  .modal-name { font-weight: 700; font-size: 18px; }
+  .modal-meta { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 3px; letter-spacing: .5px; }
+  .modal-close {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--border2);
+    color: var(--muted2);
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s;
+    flex-shrink: 0;
+  }
+  .modal-close:hover { border-color: var(--hot); color: var(--hot); }
+  .modal-body { padding: 20px 24px; }
+  .modal-section-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 14px;
+    letter-spacing: 1.5px;
+    color: var(--muted2);
+    margin-bottom: 10px;
+    margin-top: 18px;
+  }
+  .modal-section-title:first-child { margin-top: 0; }
+
+  /* stat snapshot row */
+  .stat-snapshot {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .snap-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 6px;
+    text-align: center;
+  }
+  .snap-val {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    line-height: 1;
+    color: var(--text);
+  }
+  .snap-lbl {
+    font-family: 'DM Mono', monospace;
+    font-size: 8px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 3px;
+  }
+
+  /* game log table in modal */
+  .gl-table { width: 100%; border-collapse: collapse; }
+  .gl-table th {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .gl-table td {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted2);
+  }
+  .gl-table tr:last-child td { border-bottom: none; }
+  .gl-table tr.today-row td { background: rgba(79,127,255,.06); color: var(--text); }
+  .gl-table td.hit-cell { color: var(--green); font-weight: 600; }
+  .gl-table td.no-cell  { color: var(--muted); }
+
+  /* streak pills in modal */
+  .streak-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+  .streak-pill {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+  }
+  .streak-pill.hot  { background: var(--hot-dim);  border: 1px solid var(--hot);  color: var(--hot); }
+  .streak-pill.cold { background: var(--cold-dim); border: 1px solid var(--cold); color: var(--cold); }
+  .streak-pill.zero { background: var(--surface);  border: 1px solid var(--border2); color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div>
+    <div class="logo">BallScan</div>
+    <div class="logo-sub">MLB · Streak Intelligence</div>
+  </div>
+  <div id="live-badge"><div class="live-dot"></div>LIVE</div>
+  <div class="header-right">
+    <span id="last-update">—</span>
+    <button id="refresh-btn" onclick="loadData()">↻ Refresh</button>
+  </div>
+</header>
+
+<!-- LIVE GAMES BAR -->
+<div id="live-games-bar"></div>
+
+<!-- PAGE TABS -->
+<div class="page-tabs">
+  <div class="page-tab active" onclick="setPage('players')">⚾ Players</div>
+  <div class="page-tab" onclick="setPage('games')">📅 Games</div>
+</div>
+
+<!-- CONTROLS (players page only) -->
+<div class="controls" id="players-controls">
+  <span class="ctrl-label">Mode</span>
+  <div class="pill-group" id="mode-pills">
+    <div class="pill active-all" data-mode="all" onclick="setMode('all')">All</div>
+    <div class="pill" data-mode="hot" onclick="setMode('hot')">🔥 Streaking</div>
+    <div class="pill" data-mode="cold" onclick="setMode('cold')">🧊 Cold</div>
+  </div>
+  <div class="sep"></div>
+  <span class="ctrl-label">Min AB</span>
+  <div class="pill-group">
+    <div class="pill active-all" data-minab="5"  onclick="setMinAB(5,this)">5</div>
+    <div class="pill" data-minab="10" onclick="setMinAB(10,this)">10</div>
+    <div class="pill" data-minab="20" onclick="setMinAB(20,this)">20</div>
+  </div>
+  <div class="sep"></div>
+  <div class="search-wrap">
+    <span class="search-icon">⌕</span>
+    <input type="text" id="search-input" placeholder="Search player…" oninput="applyFilters()">
+  </div>
+</div>
+
+<!-- MAIN: PLAYERS PAGE -->
+<div id="players-page" class="main">
+  <nav class="stat-nav">
+    <div class="stat-tab active" data-stat="hits"  onclick="setStat('hits')"><span class="tab-icon">🏏</span><span class="tab-label">Hits</span></div>
+    <div class="stat-tab" data-stat="hr"    onclick="setStat('hr')"><span class="tab-icon">💣</span><span class="tab-label">HR</span></div>
+    <div class="stat-tab" data-stat="rbi"   onclick="setStat('rbi')"><span class="tab-icon">📍</span><span class="tab-label">RBI</span></div>
+    <div class="stat-tab" data-stat="walks" onclick="setStat('walks')"><span class="tab-icon">👣</span><span class="tab-label">BB</span></div>
+    <div class="stat-tab" data-stat="k"     onclick="setStat('k')"><span class="tab-icon">💨</span><span class="tab-label">K</span></div>
+  </nav>
+  <div class="content" id="content-area">
+    <div class="state-box"><div class="spinner"></div><div class="msg">LOADING PLAYER DATA…</div></div>
+  </div>
+</div>
+
+<!-- MAIN: GAMES PAGE -->
+<div id="games-page">
+  <!-- Game grid -->
+  <div id="games-grid-view">
+    <div class="state-box"><div class="spinner"></div><div class="msg">LOADING GAMES…</div></div>
+  </div>
+  <!-- Game detail (shown when a game is clicked) -->
+  <div id="game-detail-view"></div>
+</div>
+
+<!-- PLAYER MODAL -->
+<div class="modal-overlay" id="player-modal" onclick="closeModal(event)">
+  <div class="modal" id="modal-content">
+    <div class="state-box"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<script>
+// ─── STATE ────────────────────────────────────────────────
+const API = 'https://statsapi.mlb.com/api/v1';
+
+const TEAM_ABB = {
+  133:'ATH',134:'PIT',135:'SD',136:'SEA',137:'SF',138:'STL',139:'TB',
+  140:'TEX',141:'TOR',142:'MIN',143:'PHI',144:'ATL',145:'CWS',146:'MIA',
+  147:'NYY',158:'MIL',108:'LAA',109:'AZ',110:'BAL',111:'BOS',112:'CHC',
+  113:'CIN',114:'CLE',115:'COL',116:'DET',117:'HOU',118:'KC',119:'LAD',
+  120:'WSH',121:'NYM'
+};
+function getTeamAbb(teamObj) {
+  if (!teamObj) return '???';
+  return TEAM_ABB[teamObj.id] || teamObj.name?.slice(0,3).toUpperCase() || '???';
+}
+let masterPlayers = [];   // full unfiltered list — never mutated after load
+let allPlayers    = [];   // view slice (filtered by minAB)
+let currentStat   = 'hits';
+let currentMode   = 'all';
+let currentMinAB  = 5;
+let sortCol       = 'streak';
+let sortDir       = 'desc';
+let liveGameIds   = [];
+let refreshTimer  = null;
+
+// map stat tab key → streak/log key suffix
+const STAT_KEY = { hits:'hits', hr:'hr', rbi:'rbi', walks:'bb', k:'k' };
+
+// ─── STAT CONFIG ──────────────────────────────────────────
+const STAT_CONFIG = {
+  hits:  { label:'Hits',         hotLabel:'Hit Streak',       coldLabel:'Hitless Streak',    hotDesc:'Consecutive games with a hit',         coldDesc:'Consecutive games without a hit',      rateKey:'h_ab',  rateLabel:'H/AB',  thresholds:[.260,.310] },
+  hr:    { label:'Home Runs',    hotLabel:'HR Streak',        coldLabel:'HR Drought',         hotDesc:'Consecutive games with a HR',           coldDesc:'Consecutive games without a HR',        rateKey:'hr_ab', rateLabel:'HR/AB', thresholds:[.03,.06]   },
+  rbi:   { label:'RBI',          hotLabel:'RBI Streak',       coldLabel:'RBI Drought',        hotDesc:'Consecutive games with an RBI',         coldDesc:'Consecutive games without an RBI',      rateKey:'rbi_ab',rateLabel:'RBI/AB',thresholds:[.12,.22]   },
+  walks: { label:'Walks (BB)',   hotLabel:'Walk Streak',      coldLabel:'Walk Drought',       hotDesc:'Consecutive games with a walk',         coldDesc:'Consecutive games without a walk',      rateKey:'bb_pa', rateLabel:'BB/PA', thresholds:[.07,.13]   },
+  k:     { label:'Strikeouts',   hotLabel:'K Streak',         coldLabel:'K-Free Streak',      hotDesc:'Consecutive games with a strikeout',    coldDesc:'Consecutive games without a strikeout', rateKey:'k_ab',  rateLabel:'K/AB',  thresholds:[.15,.25]   },
+};
+
+// ─── FETCH HELPERS ────────────────────────────────────────
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// ─── MAIN LOAD ────────────────────────────────────────────
+async function loadData() {
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.textContent = '↻ Loading…';
+
+  try {
+    // Use ET date to match MLB schedule (avoids UTC rollover issues)
+    const etOffset = -4; // EDT (use -5 for EST Nov-Mar)
+    const now = new Date();
+    const et = new Date(now.getTime() + (now.getTimezoneOffset() + etOffset * -60) * 60000);
+    const today = et.toISOString().slice(0,10);
+    const season = today.slice(0,4); // dynamically use current year
+
+    // 1. Today's schedule
+    const sched = await fetchJSON(`${API}/schedule?sportId=1&date=${today}&gameType=R&hydrate=linescore`);
+    const todayGames = sched.dates?.[0]?.games || [];
+    todaySchedule = todayGames; // store globally for Games tab
+    liveGameIds = todayGames
+      .filter(g => g.status.abstractGameState === 'Live')
+      .map(g => g.gamePk);
+
+    updateLiveBar(todayGames);
+
+    // 2. Current season stats
+    const statsResp = await fetchJSON(`${API}/stats?stats=season&group=hitting&season=${season}&gameType=R&limit=500&sortStat=atBats&order=desc`);
+    const splits = statsResp.stats?.[0]?.splits || [];
+
+    // 2b. Prior season stats for blended AVG (one call, all players)
+    const priorSeason = String(parseInt(season) - 1);
+    const priorResp = await fetchJSON(`${API}/stats?stats=season&group=hitting&season=${priorSeason}&gameType=R&limit=500&sortStat=atBats&order=desc`);
+    const priorMap = {};
+    (priorResp.stats?.[0]?.splits || []).forEach(s => {
+      priorMap[s.player.id] = s.stat;
+    });
+
+    // Build player map
+    const playerMap = {};
+    splits.forEach(s => {
+      const id = s.player.id;
+      const st = s.stat;
+      const pr = priorMap[id] || null;
+
+      // Blended hits/AB across current + prior season
+      const totalH  = (st.hits || 0)   + (pr ? (pr.hits || 0)   : 0);
+      const totalAB = (st.atBats || 0) + (pr ? (pr.atBats || 0) : 0);
+      const totalG  = (st.gamesPlayed || 0) + (pr ? (pr.gamesPlayed || 0) : 0);
+      const blendedAvg = totalAB > 0 ? (totalH / totalAB) : 0;
+      const hPerGame   = totalG  > 0 ? (totalH / totalG)  : 0;
+
+      playerMap[id] = {
+        id,
+        name: s.player.fullName,
+        team: getTeamAbb(s.team),
+        ab:   st.atBats || 0,
+        pa:   st.plateAppearances || 0,
+        h:    st.hits || 0,
+        r:    st.runs || 0,
+        hr:   st.homeRuns || 0,
+        rbi:  st.rbi || 0,
+        bb:   st.baseOnBalls || 0,
+        k:    st.strikeOuts || 0,
+        avg:  st.avg || '.000',
+        blendedAvg,
+        hPerGame,
+        priorAvg: pr ? pr.avg : null,
+        // computed rates (current season)
+        h_ab:  st.atBats  ? st.hits/st.atBats           : 0,
+        hr_ab: st.atBats  ? st.homeRuns/st.atBats        : 0,
+        rbi_ab:st.atBats  ? st.rbi/st.atBats             : 0,
+        bb_pa: st.plateAppearances ? st.baseOnBalls/st.plateAppearances : 0,
+        k_ab:  st.atBats  ? st.strikeOuts/st.atBats      : 0,
+        // streaks filled in next
+        streak_hits_hot:0, streak_hits_cold:0,
+        streak_hr_hot:0,   streak_hr_cold:0,
+        streak_rbi_hot:0,  streak_rbi_cold:0,
+        streak_bb_hot:0,   streak_bb_cold:0,
+        streak_k_hot:0,    streak_k_cold:0,
+        log_hits:[], log_hr:[], log_rbi:[], log_bb:[], log_k:[],
+      };
+    });
+
+    // 3. Fetch game logs for all players for streak calc
+    const topIds = splits.map(s => s.player.id);
+    document.getElementById('content-area').innerHTML =
+      `<div class="state-box"><div class="spinner"></div><div class="msg">CALCULATING STREAKS…<br><span style="font-size:9px;color:var(--muted)">fetching game logs for ${topIds.length} players</span></div></div>`;
+    await fetchStreaksInBatches(topIds, playerMap, season);
+
+    masterPlayers = Object.values(playerMap).sort((a,b) => b.ab - a.ab);
+    allPlayers = masterPlayers.filter(p => p.ab >= currentMinAB);
+
+    updateTimestamp();
+    renderContent();
+
+    // 4. Schedule live refresh if games are live
+    if (liveGameIds.length > 0) {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(loadData, 60000); // refresh every 60s
+    }
+
+  } catch(e) {
+    document.getElementById('content-area').innerHTML =
+      `<div class="state-box"><div class="msg">⚠ Failed to load data.<br>${e.message}</div></div>`;
+  }
+
+  btn.disabled = false;
+  btn.textContent = '↻ Refresh';
+}
+
+// ─── BATCH STREAK FETCH ───────────────────────────────────
+async function fetchStreaksInBatches(ids, playerMap, season) {
+  const BATCH = 8;
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const batch = ids.slice(i, i+BATCH);
+    await Promise.all(batch.map(id => fetchPlayerStreaks(id, playerMap, season)));
+  }
+}
+
+async function fetchPlayerStreaks(id, playerMap, season) {
+  try {
+    const resp = await fetchJSON(`${API}/people/${id}/stats?stats=gameLog&group=hitting&season=${season}&gameType=R`);
+    const splits = resp.stats?.[0]?.splits || [];
+    if (!splits.length || !playerMap[id]) return;
+
+    const p = playerMap[id];
+    const logH=[], logHR=[], logRBI=[], logBB=[], logK=[];
+
+    for (const s of splits) {
+      const st = s.stat;
+      logH.push(st.hits > 0 ? 1 : 0);
+      logHR.push(st.homeRuns > 0 ? 1 : 0);
+      logRBI.push(st.rbi > 0 ? 1 : 0);
+      logBB.push(st.baseOnBalls > 0 ? 1 : 0);
+      logK.push(st.strikeOuts > 0 ? 1 : 0);
+    }
+
+    p.log_hits = logH.slice(-10);
+    p.log_hr   = logHR.slice(-10);
+    p.log_rbi  = logRBI.slice(-10);
+    p.log_bb   = logBB.slice(-10);
+    p.log_k    = logK.slice(-10);
+
+    p.streak_hits_hot  = calcHot(logH);
+    p.streak_hits_cold = calcCold(logH);
+    p.streak_hr_hot    = calcHot(logHR);
+    p.streak_hr_cold   = calcCold(logHR);
+    p.streak_rbi_hot   = calcHot(logRBI);
+    p.streak_rbi_cold  = calcCold(logRBI);
+    p.streak_bb_hot    = calcHot(logBB);
+    p.streak_bb_cold   = calcCold(logBB);
+    p.streak_k_hot     = calcHot(logK);
+    p.streak_k_cold    = calcCold(logK);
+
+  } catch(e) { /* silently skip */ }
+}
+
+function calcHot(log) {
+  let c = 0;
+  for (let i = log.length-1; i >= 0; i--) {
+    if (log[i] === 1) c++; else break;
+  }
+  return c;
+}
+function calcCold(log) {
+  let c = 0;
+  for (let i = log.length-1; i >= 0; i--) {
+    if (log[i] === 0) c++; else break;
+  }
+  return c;
+}
+
+// ─── LIVE BAR ─────────────────────────────────────────────
+function updateLiveBar(games) {
+  const bar = document.getElementById('live-games-bar');
+  const badge = document.getElementById('live-badge');
+  const live = games.filter(g => g.status.abstractGameState === 'Live');
+  const upcoming = games.filter(g => g.status.abstractGameState === 'Preview');
+
+  if (live.length > 0) {
+    badge.classList.add('active');
+    bar.classList.add('active');
+    bar.innerHTML = live.map(g =>
+      `<div class="live-game-chip">🔴 ${getTeamAbb(g.teams.away.team)} @ ${getTeamAbb(g.teams.home.team)} — LIVE</div>`
+    ).join('') + upcoming.map(g =>
+      `<div class="live-game-chip" style="color:var(--muted2);border-color:var(--border2)">⏰ ${getTeamAbb(g.teams.away.team)} @ ${getTeamAbb(g.teams.home.team)}</div>`
+    ).join('');
+  } else if (upcoming.length > 0) {
+    bar.classList.add('active');
+    bar.innerHTML = `<div class="live-game-chip" style="color:var(--muted2);border-color:var(--border2)">⏰ ${upcoming.length} game(s) upcoming today</div>`;
+  } else {
+    const final = games.filter(g => g.status.abstractGameState === 'Final');
+    if (final.length > 0) {
+      bar.classList.add('active');
+      bar.innerHTML = `<div class="live-game-chip" style="color:var(--muted2);border-color:var(--border2)">✓ ${final.length} game(s) final today</div>`;
+    }
+  }
+}
+
+function renderContent() {
+  const cfg = STAT_CONFIG[currentStat];
+  const sk  = STAT_KEY[currentStat];
+  const statStreakHotKey  = `streak_${sk}_hot`;
+  const statStreakColdKey = `streak_${sk}_cold`;
+  const logKey            = `log_${sk}`;
+
+  const q = document.getElementById('search-input').value.toLowerCase().trim();
+  const isSearching = q.length > 0;
+
+  // When searching: ignore mode, show all matches regardless of streak
+  // When not searching: respect mode filter, only show players with active streaks
+  const filtered = applyFiltersRaw();
+
+  let hotData, coldData;
+
+  if (isSearching) {
+    // Show all matching players in both tables, even if streak = 0
+    hotData  = [...filtered].sort((a,b) => b[statStreakHotKey]  - a[statStreakHotKey]);
+    coldData = [...filtered].sort((a,b) => b[statStreakColdKey] - a[statStreakColdKey]);
+  } else {
+    hotData  = filtered.filter(p => p[statStreakHotKey]  > 0).sort((a,b) => b[statStreakHotKey]  - a[statStreakHotKey]);
+    coldData = filtered.filter(p => p[statStreakColdKey] > 0).sort((a,b) => b[statStreakColdKey] - a[statStreakColdKey]);
+  }
+
+  // Column sort override
+  if (sortCol !== 'streak') {
+    const sortFn = (a,b) => sortDir === 'desc' ? b[sortCol]-a[sortCol] : a[sortCol]-b[sortCol];
+    hotData.sort(sortFn);
+    coldData.sort(sortFn);
+  }
+
+  const hotMax  = hotData[0]?.[statStreakHotKey]  || 1;
+  const coldMax = coldData[0]?.[statStreakColdKey] || 1;
+
+  // shared thead builder
+  const thead = (streakLabel) => `
+    <thead><tr>
+      <th>#</th>
+      <th>Player</th>
+      <th onclick="toggleSort('streak')" class="${sortCol==='streak'?'sort-'+sortDir:''}">${streakLabel}</th>
+      <th onclick="toggleSort('ab')"  class="${sortCol==='ab' ?'sort-'+sortDir:''}">AB</th>
+      <th onclick="toggleSort('pa')"  class="${sortCol==='pa' ?'sort-'+sortDir:''}">PA</th>
+      <th onclick="toggleSort('h')"   class="${sortCol==='h'  ?'sort-'+sortDir:''}">H</th>
+      <th onclick="toggleSort('hr')"  class="${sortCol==='hr' ?'sort-'+sortDir:''}">HR</th>
+      <th onclick="toggleSort('rbi')" class="${sortCol==='rbi'?'sort-'+sortDir:''}">RBI</th>
+      <th onclick="toggleSort('bb')"  class="${sortCol==='bb' ?'sort-'+sortDir:''}">BB</th>
+      <th onclick="toggleSort('k')"   class="${sortCol==='k'  ?'sort-'+sortDir:''}">K</th>
+      <th onclick="toggleSort('${cfg.rateKey}')" class="${sortCol===cfg.rateKey?'sort-'+sortDir:''}">${cfg.rateLabel}</th>
+      <th onclick="toggleSort('blendedAvg')" class="${sortCol==='blendedAvg'?'sort-'+sortDir:''}">AVG <span style="font-size:8px;color:var(--muted)">'25+'26</span></th>
+      <th onclick="toggleSort('hPerGame')" class="${sortCol==='hPerGame'?'sort-'+sortDir:''}">H/G</th>
+      <th>Last 10G</th>
+    </tr></thead>`;
+
+  let html = '';
+
+  // ── HOT ──
+  if (currentMode !== 'cold') {
+    html += `
+    <div class="section-header">
+      <div class="section-title hot">🔥 ${cfg.hotLabel}</div>
+      <div class="streak-meta">${cfg.hotDesc}</div>
+      <div class="count-badge">${hotData.length} players</div>
+    </div>
+    <div class="table-wrap"><table>
+      ${thead('Streak')}
+      <tbody>`;
+    hotData.slice(0,50).forEach((p, i) => {
+      const sv  = p[statStreakHotKey];
+      const rv  = p[cfg.rateKey];
+      const pct = Math.round((sv/hotMax)*100);
+      html += buildRow(p, i+1, sv, 'hot', pct, rv, cfg, logKey);
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  // ── COLD ──
+  if (currentMode !== 'hot') {
+    html += `
+    <div class="section-header">
+      <div class="section-title cold">🧊 ${cfg.coldLabel}</div>
+      <div class="streak-meta">${cfg.coldDesc}</div>
+      <div class="count-badge">${coldData.length} players</div>
+    </div>
+    <div class="table-wrap"><table>
+      ${thead('Games')}
+      <tbody>`;
+    coldData.slice(0,50).forEach((p, i) => {
+      const sv  = p[statStreakColdKey];
+      const rv  = p[cfg.rateKey];
+      const pct = Math.round((sv/coldMax)*100);
+      html += buildRow(p, i+1, sv, 'cold', pct, rv, cfg, logKey);
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  if (!html) html = `<div class="state-box"><div class="msg">No players match current filters.</div></div>`;
+  document.getElementById('content-area').innerHTML = html;
+}
+
+function buildRow(p, rank, streakVal, type, pct, rateVal, cfg, logKey) {
+  const initials = p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const rateClass = rateVal >= cfg.thresholds[1] ? 'rate-good' : rateVal >= cfg.thresholds[0] ? 'rate-mid' : 'rate-low';
+  const logDots = (p[logKey]||[]).slice(-10).map(v =>
+    `<div class="gl-dot ${v===1?'hit':'no'}"></div>`
+  ).join('');
+
+  // Blended AVG display — show current season in muted if different
+  const blendStr = p.blendedAvg.toFixed(3);
+  const curStr   = p.avg;
+  const avgDisplay = p.priorAvg
+    ? `<span title="${curStr} this season / ${p.priorAvg} last season">${blendStr}<span style="font-size:9px;color:var(--muted);margin-left:3px">${curStr}</span></span>`
+    : `<span>${curStr}</span>`;
+
+  // H/G display
+  const hgClass = p.hPerGame >= 1.0 ? 'rate-good' : p.hPerGame >= 0.7 ? 'rate-mid' : 'rate-low';
+  const hgStr = p.hPerGame > 0 ? p.hPerGame.toFixed(2) : '—';
+
+  return `<tr style="cursor:pointer" onclick="openPlayerModal(${p.id})">
+    <td>${rank}</td>
+    <td>
+      <div class="player-cell">
+        <div class="player-avatar">
+          <img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_60,q_auto:best/v1/people/${p.id}/headshot/silo/current"
+               onerror="this.style.display='none';this.parentElement.textContent='${initials}'" alt="">
+        </div>
+        <div>
+          <div class="player-name">${p.name}</div>
+          <div class="player-team">${p.team}</div>
+        </div>
+      </div>
+    </td>
+    <td>
+      <div class="streak-cell">
+        <div class="streak-num ${type}">${streakVal}</div>
+        <div class="streak-bar-wrap">
+          <div class="streak-bar ${type}" style="width:${pct}%"></div>
+        </div>
+      </div>
+    </td>
+    <td class="mono">${p.ab}</td>
+    <td class="mono">${p.pa}</td>
+    <td class="mono">${p.h}</td>
+    <td class="mono">${p.hr}</td>
+    <td class="mono">${p.rbi}</td>
+    <td class="mono">${p.bb}</td>
+    <td class="mono">${p.k}</td>
+    <td class="mono ${rateClass}">${rateVal.toFixed(3)}</td>
+    <td class="avg">${avgDisplay}</td>
+    <td class="mono ${hgClass}">${hgStr}</td>
+    <td><div class="gl-dots">${logDots}</div></td>
+  </tr>`;
+}
+
+// ─── FILTERS ──────────────────────────────────────────────
+function applyFiltersRaw() {
+  const q = document.getElementById('search-input').value.toLowerCase().trim();
+  const pool = q ? masterPlayers : allPlayers; // search ignores min AB filter too
+  return pool.filter(p =>
+    (!q || p.name.toLowerCase().includes(q) || p.team.toLowerCase().includes(q))
+  );
+}
+
+function applyFilters() { renderContent(); }
+
+// ─── CONTROLS ─────────────────────────────────────────────
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('[data-mode]').forEach(el => {
+    el.className = 'pill';
+    if (el.dataset.mode === mode) {
+      el.className = mode === 'hot' ? 'pill active-hot' : mode === 'cold' ? 'pill active-cold' : 'pill active-all';
+    }
+  });
+  renderContent();
+}
+
+function setMinAB(n, el) {
+  currentMinAB = n;
+  document.querySelectorAll('[data-minab]').forEach(e => e.className = 'pill');
+  el.className = 'pill active-all';
+  allPlayers = masterPlayers.filter(p => p.ab >= currentMinAB);
+  renderContent();
+}
+
+function setStat(stat) {
+  currentStat = stat;
+  document.querySelectorAll('[data-stat]').forEach(el => {
+    el.classList.toggle('active', el.dataset.stat === stat);
+  });
+  sortCol = 'streak';
+  sortDir = 'desc';
+  renderContent();
+}
+
+function toggleSort(col) {
+  if (sortCol === col) sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+  else { sortCol = col; sortDir = 'desc'; }
+  renderContent();
+}
+
+function updateTimestamp() {
+  const now = new Date();
+  document.getElementById('last-update').textContent =
+    'Updated ' + now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+}
+
+// ─── PAGE SWITCHING ───────────────────────────────────────
+let currentPage = 'players';
+let todaySchedule = []; // stored from loadData
+
+function setPage(page) {
+  currentPage = page;
+  document.querySelectorAll('.page-tab').forEach((el,i) => {
+    el.classList.toggle('active', (i===0 && page==='players') || (i===1 && page==='games'));
+  });
+  document.getElementById('players-page').classList.toggle('hidden', page !== 'players');
+  document.getElementById('players-controls').style.display = page === 'players' ? '' : 'none';
+  document.getElementById('games-page').classList.toggle('active', page === 'games');
+  if (page === 'games') renderGamesGrid();
+}
+
+// ─── GAMES TAB ────────────────────────────────────────────
+function renderGamesGrid() {
+  const container = document.getElementById('games-grid-view');
+  const detail    = document.getElementById('game-detail-view');
+  detail.innerHTML = '';
+  detail.classList.remove('active');
+
+  if (!todaySchedule.length) {
+    container.innerHTML = `<div class="state-box"><div class="msg">No games today.</div></div>`;
+    return;
+  }
+
+  // Sort: Live first, then Preview, then Final
+  const order = { Live:0, Preview:1, Final:2 };
+  const sorted = [...todaySchedule].sort((a,b) =>
+    (order[a.status.abstractGameState]||9) - (order[b.status.abstractGameState]||9)
+  );
+
+  const cards = sorted.map(g => {
+    const status = g.status.abstractGameState;
+    const isLive = status === 'Live';
+    const isFinal = status === 'Final';
+    const ls = g.linescore || {};
+    const awayR = ls.teams?.away?.runs ?? (isFinal||isLive ? '?' : '');
+    const homeR = ls.teams?.home?.runs ?? (isFinal||isLive ? '?' : '');
+    const inn = ls.currentInning ? `${ls.inningHalf === 'Bottom' ? '▼' : '▲'}${ls.currentInning}` : '';
+    const awayAbb = getTeamAbb(g.teams.away.team);
+    const homeAbb = getTeamAbb(g.teams.home.team);
+    const awayName = g.teams.away.team.name;
+    const homeName = g.teams.home.team.name;
+    const statusLabel = isLive ? `🔴 LIVE ${inn}` : isFinal ? `✓ FINAL` : `⏰ UPCOMING`;
+    const statusClass = isLive ? 'live' : isFinal ? 'final' : 'preview';
+
+    return `
+    <div class="game-card ${isLive ? 'live-card' : ''}" onclick="openGameDetail(${g.gamePk}, '${awayAbb}', '${homeAbb}', '${awayName}', '${homeName}', ${awayR||0}, ${homeR||0}, '${statusLabel}')">
+      <div class="game-card-status ${statusClass}">${statusLabel}</div>
+      <div class="game-card-matchup">
+        <div class="game-team">
+          <div class="game-team-abb">${awayAbb}</div>
+          <div class="game-team-name">${awayName}</div>
+        </div>
+        <div class="game-score-wrap">
+          ${isFinal||isLive ? `<div class="game-score">${awayR} — ${homeR}</div>` : `<div class="game-score" style="color:var(--muted);font-size:20px">VS</div>`}
+          ${inn ? `<div class="game-inning">${inn}</div>` : ''}
+        </div>
+        <div class="game-team">
+          <div class="game-team-abb">${homeAbb}</div>
+          <div class="game-team-name">${homeName}</div>
+        </div>
+      </div>
+      <div class="game-card-footer">Click to see streak leaderboard</div>
+    </div>`;
+  }).join('');
+
+  container.innerHTML = `<div class="games-grid">${cards}</div>`;
+}
+
+async function openGameDetail(gamePk, awayAbb, homeAbb, awayName, homeName, awayR, homeR, statusLabel) {
+  const container = document.getElementById('games-grid-view');
+  const detail    = document.getElementById('game-detail-view');
+
+  detail.innerHTML = `<div class="state-box"><div class="spinner"></div><div class="msg">LOADING GAME DATA…</div></div>`;
+  detail.classList.add('active');
+  container.style.display = 'none';
+
+  try {
+    const sk = STAT_KEY[currentStat];
+    const hotKey  = `streak_${sk}_hot`;
+    const coldKey = `streak_${sk}_cold`;
+    const cfg = STAT_CONFIG[currentStat];
+
+    const isUpcoming = statusLabel.includes('UPCOMING');
+
+    // Use ET date for schedule hydration
+    const etOffset = -4;
+    const now = new Date();
+    const et = new Date(now.getTime() + (now.getTimezoneOffset() + etOffset * -60) * 60000);
+    const today = et.toISOString().slice(0,10);
+
+    let awayRows = [], homeRows = [];
+
+    if (isUpcoming) {
+      // For upcoming: pull lineup from schedule hydration
+      const schedResp = await fetchJSON(`${API}/schedule?sportId=1&date=${today}&gameType=R&hydrate=lineups`);
+      const games = schedResp.dates?.[0]?.games || [];
+      const gameData = games.find(g => g.gamePk === gamePk);
+      const lineups = gameData?.lineups || {};
+      const awayPlayers = lineups.awayPlayers || [];
+      const homePlayers = lineups.homePlayers || [];
+
+      function buildFromLineup(players) {
+        return players.map(p => {
+          const streakData = masterPlayers.find(mp => mp.id === p.id) || null;
+          return {
+            pid: p.id,
+            name: p.fullName || '—',
+            pos: p.primaryPosition?.abbreviation || '',
+            todaySummary: '—',
+            hotStreak:  streakData?.[hotKey]  || 0,
+            coldStreak: streakData?.[coldKey] || 0,
+            streakData,
+          };
+        }).filter(r => r.name !== '—');
+      }
+
+      awayRows = buildFromLineup(awayPlayers);
+      homeRows = buildFromLineup(homePlayers);
+
+    } else {
+      // For live/final: use boxscore (has today's stats)
+      const box = await fetchJSON(`${API}/game/${gamePk}/boxscore`);
+      const awayBatters = box.teams.away.batters || [];
+      const homeBatters = box.teams.home.batters || [];
+      const awayPlayers = box.teams.away.players || {};
+      const homePlayers = box.teams.home.players || {};
+
+      function buildFromBoxscore(batterIds, playerObjs) {
+        return batterIds.map(bid => {
+          const pObj = playerObjs[`ID${bid}`] || {};
+          const person = pObj.person || {};
+          const todayStats = pObj.stats?.batting || {};
+          const pid = person.id;
+          const streakData = masterPlayers.find(p => p.id === pid) || null;
+          const summary = todayStats.summary || (todayStats.atBats != null ? `${todayStats.hits||0}-${todayStats.atBats}` : '—');
+          return {
+            pid,
+            name: person.fullName || '—',
+            pos: pObj.position?.abbreviation || '',
+            todaySummary: summary,
+            hotStreak:  streakData?.[hotKey]  || 0,
+            coldStreak: streakData?.[coldKey] || 0,
+            streakData,
+            todayStats,
+          };
+        }).filter(r => r.name !== '—');
+      }
+
+      awayRows = buildFromBoxscore(awayBatters, awayPlayers);
+      homeRows = buildFromBoxscore(homeBatters, homePlayers);
+    }
+
+    // Sort by hot streak desc, then cold streak desc
+    const sortRows = rows => [...rows].sort((a,b) =>
+      b.hotStreak !== a.hotStreak ? b.hotStreak - a.hotStreak : b.coldStreak - a.coldStreak
+    );
+
+    function renderTeamPanel(teamAbb, teamName, rows) {
+      if (!rows.length) {
+        return `<div class="team-streak-panel">
+          <div class="team-streak-panel-header"><span>${teamAbb} — ${teamName}</span></div>
+          <div style="padding:20px;color:var(--muted);font-size:11px;text-align:center;font-family:'DM Mono',monospace">
+            ${isUpcoming ? 'Lineup not yet posted' : 'No lineup data'}
+          </div>
+        </div>`;
+      }
+
+      const sorted = sortRows(rows);
+      const playerRows = sorted.map((r, i) => {
+        const hasHot  = r.hotStreak  > 0;
+        const hasCold = r.coldStreak > 0;
+        const badgeVal  = hasHot ? r.hotStreak : hasCold ? r.coldStreak : 0;
+        const badgeType = hasHot ? 'hot' : hasCold ? 'cold' : 'none';
+        const badgeLabel = badgeVal > 0 ? badgeVal : '—';
+        const initials = r.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+        const avgStr = r.streakData?.blendedAvg ? r.streakData.blendedAvg.toFixed(3) : (r.streakData?.avg || '—');
+        const rateStr = r.streakData?.[cfg.rateKey] != null ? r.streakData[cfg.rateKey].toFixed(3) : '—';
+
+        return `
+        <div class="game-player-row" onclick="openPlayerModal(${r.pid})">
+          <div class="game-player-rank">${i+1}</div>
+          <div style="width:28px;height:28px;border-radius:50%;background:var(--border2);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:8px;color:var(--muted2)">
+            <img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_60,q_auto:best/v1/people/${r.pid}/headshot/silo/current"
+                 style="width:100%;height:100%;object-fit:cover;border-radius:50%"
+                 onerror="this.style.display='none';this.parentElement.textContent='${initials}'" alt="">
+          </div>
+          <div class="game-player-info">
+            <div class="game-player-name">${r.name}${r.pos ? `<span style="font-size:9px;color:var(--muted);margin-left:5px">${r.pos}</span>` : ''}</div>
+            <div class="game-player-stats">AVG ${avgStr} · ${cfg.rateLabel} ${rateStr}</div>
+          </div>
+          <div class="game-today-line">${r.todaySummary}</div>
+          <div class="game-streak-badge ${badgeType}">${badgeLabel}</div>
+        </div>`;
+      }).join('');
+
+      return `
+      <div class="team-streak-panel">
+        <div class="team-streak-panel-header">
+          <span>${teamAbb} — ${teamName}</span>
+          <span style="font-size:10px;font-family:'DM Mono',monospace;color:var(--muted)">${cfg.hotLabel} ↓</span>
+        </div>
+        ${playerRows}
+      </div>`;
+    }
+
+    // Stat selector pills
+    const statPills = Object.entries(STAT_CONFIG).map(([k,v]) =>
+      `<div class="pill ${k===currentStat?'active-all':''}" onclick="setStat('${k}');openGameDetail(${gamePk},'${awayAbb}','${homeAbb}','${awayName.replace(/'/g,"\\'")}','${homeName.replace(/'/g,"\\'")}',${awayR},${homeR},'${statusLabel}')">${v.label}</div>`
+    ).join('');
+
+    detail.innerHTML = `
+    <div class="game-detail-header">
+      <button class="back-btn" onclick="backToGames()">← All Games</button>
+      <div class="game-detail-title">${awayAbb} @ ${homeAbb}</div>
+      <div class="game-detail-score">${statusLabel}${!isUpcoming ? ` · ${awayR}–${homeR}` : ''}</div>
+    </div>
+    <div class="game-stat-tabs pill-group" style="margin-bottom:16px">${statPills}</div>
+    <div class="teams-split">
+      ${renderTeamPanel(awayAbb, awayName, awayRows)}
+      ${renderTeamPanel(homeAbb, homeName, homeRows)}
+    </div>`;
+
+  } catch(e) {
+    detail.innerHTML = `<div class="state-box"><div class="msg">⚠ ${e.message}</div></div>`;
+  }
+}
+
+function backToGames() {
+  document.getElementById('games-grid-view').style.display = '';
+  document.getElementById('game-detail-view').classList.remove('active');
+  document.getElementById('game-detail-view').innerHTML = '';
+}
+
+// ─── PLAYER MODAL ─────────────────────────────────────────
+async function openPlayerModal(playerId) {
+  const overlay = document.getElementById('player-modal');
+  const content = document.getElementById('modal-content');
+  overlay.classList.add('active');
+  content.innerHTML = `<div class="state-box" style="padding:40px"><div class="spinner"></div><div class="msg">LOADING…</div></div>`;
+
+  try {
+    // Determine current season
+    const etOffset = -4;
+    const now = new Date();
+    const et = new Date(now.getTime() + (now.getTimezoneOffset() + etOffset * -60) * 60000);
+    const season = et.toISOString().slice(0,4);
+
+    const player = masterPlayers.find(p => p.id === playerId);
+    const initials = player?.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() || '??';
+
+    // Fetch game log
+    const logResp = await fetchJSON(`${API}/people/${playerId}/stats?stats=gameLog&group=hitting&season=${season}&gameType=R`);
+    const gameLogs = logResp.stats?.[0]?.splits || [];
+
+    // Check if player has today's stats via game log
+    const etDate = et.toISOString().slice(0,10);
+    const todayLog = gameLogs.length && gameLogs[gameLogs.length-1].date === etDate ? gameLogs[gameLogs.length-1] : null;
+    const last5 = gameLogs.slice(-6); // last 5 + possibly today
+
+    // Build streak pills
+    const streakPills = Object.entries(STAT_KEY).map(([statName, sk]) => {
+      const hot  = player?.[`streak_${sk}_hot`]  || 0;
+      const cold = player?.[`streak_${sk}_cold`] || 0;
+      const cfg  = STAT_CONFIG[statName];
+      if (hot > 0)  return `<div class="streak-pill hot">🔥 ${hot}G ${cfg.hotLabel}</div>`;
+      if (cold > 0) return `<div class="streak-pill cold">🧊 ${cold}G ${cfg.coldLabel}</div>`;
+      return `<div class="streak-pill zero">${cfg.label}: —</div>`;
+    }).join('');
+
+    // Stat snapshot
+    const snap = player ? `
+    <div class="stat-snapshot">
+      <div class="snap-box"><div class="snap-val">${player.h}</div><div class="snap-lbl">Hits</div></div>
+      <div class="snap-box"><div class="snap-val">${player.hr}</div><div class="snap-lbl">HR</div></div>
+      <div class="snap-box"><div class="snap-val">${player.rbi}</div><div class="snap-lbl">RBI</div></div>
+      <div class="snap-box"><div class="snap-val">${player.bb}</div><div class="snap-lbl">BB</div></div>
+      <div class="snap-box"><div class="snap-val">${player.k}</div><div class="snap-lbl">K</div></div>
+      <div class="snap-box"><div class="snap-val">${player.avg}</div><div class="snap-lbl">AVG</div></div>
+    </div>` : '';
+
+    // Game log table
+    const logRows = last5.map(s => {
+      const st = s.stat;
+      const isToday = s.date === etDate;
+      const opp = s.opponent?.abbreviation || s.opponent?.name?.slice(0,3) || '?';
+      const hitCell = st.hits > 0 ? 'hit-cell' : 'no-cell';
+      return `<tr class="${isToday ? 'today-row' : ''}">
+        <td>${isToday ? '<strong>Today</strong>' : s.date.slice(5)}</td>
+        <td>vs ${opp}</td>
+        <td class="${hitCell}">${st.hits}-${st.atBats}</td>
+        <td>${st.homeRuns||0}</td>
+        <td>${st.rbi||0}</td>
+        <td>${st.baseOnBalls||0}</td>
+        <td>${st.strikeOuts||0}</td>
+        <td>${st.runs||0}</td>
+        <td style="color:var(--muted2)">${st.summary||''}</td>
+      </tr>`;
+    }).join('');
+
+    const blendLabel = player?.priorAvg ? `${season} avg: ${player.avg} · ${parseInt(season)-1} avg: ${player.priorAvg} · Combined: ${player.blendedAvg.toFixed(3)}` : `${season} avg: ${player?.avg||'—'}`;
+
+    content.innerHTML = `
+    <div class="modal-header">
+      <div class="modal-avatar">
+        <img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_120,q_auto:best/v1/people/${playerId}/headshot/silo/current"
+             onerror="this.style.display='none';this.parentElement.textContent='${initials}'" alt="">
+      </div>
+      <div>
+        <div class="modal-name">${player?.name || 'Player'}</div>
+        <div class="modal-meta">${player?.team || ''} · ${player?.ab||0} AB · ${player?.pa||0} PA · ${blendLabel}</div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-title">SEASON STATS</div>
+      ${snap}
+      <div class="modal-section-title">ACTIVE STREAKS</div>
+      <div class="streak-pills">${streakPills}</div>
+      <div class="modal-section-title">LAST ${last5.length} GAMES</div>
+      ${last5.length ? `
+      <table class="gl-table">
+        <thead><tr><th>Date</th><th>Opp</th><th>H-AB</th><th>HR</th><th>RBI</th><th>BB</th><th>K</th><th>R</th><th>Summary</th></tr></thead>
+        <tbody>${logRows}</tbody>
+      </table>` : '<div style="color:var(--muted);font-size:11px">No game log available yet.</div>'}
+    </div>`;
+
+  } catch(e) {
+    content.innerHTML = `<div class="state-box"><div class="msg">⚠ ${e.message}</div></div>`;
+  }
+}
+
+function closeModal(e) {
+  if (!e || e.target === document.getElementById('player-modal')) {
+    document.getElementById('player-modal').classList.remove('active');
+  }
+}
+
+// ─── BOOT ─────────────────────────────────────────────────
+loadData();
+</script>
+</body>
+</html>

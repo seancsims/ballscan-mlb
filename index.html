@@ -837,6 +837,16 @@
     <div class="pill" data-minab="20" onclick="setMinAB(20,this)">20</div>
   </div>
   <div class="sep"></div>
+  <span class="ctrl-label">Min Streak</span>
+  <div style="display:flex;align-items:center;gap:6px">
+    <input type="number" id="min-streak" min="1" max="30" value="1"
+      style="width:52px;background:var(--card);border:1px solid var(--border2);color:var(--text);
+             padding:5px 8px;border-radius:6px;font-family:'DM Mono',monospace;font-size:12px;
+             outline:none;text-align:center"
+      oninput="applyFilters()">
+    <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted)">games</span>
+  </div>
+  <div class="sep"></div>
   <div class="search-wrap">
     <span class="search-icon">⌕</span>
     <input type="text" id="search-input" placeholder="Search player…" oninput="applyFilters()">
@@ -904,11 +914,11 @@ const STAT_KEY = { hits:'hits', hr:'hr', rbi:'rbi', walks:'bb', k:'k' };
 
 // ─── STAT CONFIG ──────────────────────────────────────────
 const STAT_CONFIG = {
-  hits:  { label:'Hits',         hotLabel:'Hit Streak',       coldLabel:'Hitless Streak',    hotDesc:'Consecutive games with a hit',         coldDesc:'Consecutive games without a hit',      rateKey:'h_ab',  rateLabel:'H/AB',  thresholds:[.260,.310] },
-  hr:    { label:'Home Runs',    hotLabel:'HR Streak',        coldLabel:'HR Drought',         hotDesc:'Consecutive games with a HR',           coldDesc:'Consecutive games without a HR',        rateKey:'hr_ab', rateLabel:'HR/AB', thresholds:[.03,.06]   },
-  rbi:   { label:'RBI',          hotLabel:'RBI Streak',       coldLabel:'RBI Drought',        hotDesc:'Consecutive games with an RBI',         coldDesc:'Consecutive games without an RBI',      rateKey:'rbi_ab',rateLabel:'RBI/AB',thresholds:[.12,.22]   },
+  hits:  { label:'Hits',         hotLabel:'Hit Streak',       coldLabel:'Hitless Streak',    hotDesc:'Consecutive games with a hit',         coldDesc:'Consecutive games without a hit',      rateKey:'h_pa',  rateLabel:'H/PA',  thresholds:[.220,.270] },
+  hr:    { label:'Home Runs',    hotLabel:'HR Streak',        coldLabel:'HR Drought',         hotDesc:'Consecutive games with a HR',           coldDesc:'Consecutive games without a HR',        rateKey:'hr_pa', rateLabel:'HR/PA', thresholds:[.025,.05]  },
+  rbi:   { label:'RBI',          hotLabel:'RBI Streak',       coldLabel:'RBI Drought',        hotDesc:'Consecutive games with an RBI',         coldDesc:'Consecutive games without an RBI',      rateKey:'rbi_pa',rateLabel:'RBI/PA',thresholds:[.10,.18]   },
   walks: { label:'Walks (BB)',   hotLabel:'Walk Streak',      coldLabel:'Walk Drought',       hotDesc:'Consecutive games with a walk',         coldDesc:'Consecutive games without a walk',      rateKey:'bb_pa', rateLabel:'BB/PA', thresholds:[.07,.13]   },
-  k:     { label:'Strikeouts',   hotLabel:'K Streak',         coldLabel:'K-Free Streak',      hotDesc:'Consecutive games with a strikeout',    coldDesc:'Consecutive games without a strikeout', rateKey:'k_ab',  rateLabel:'K/AB',  thresholds:[.15,.25]   },
+  k:     { label:'Strikeouts',   hotLabel:'K Streak',         coldLabel:'K-Free Streak',      hotDesc:'Consecutive games with a strikeout',    coldDesc:'Consecutive games without a strikeout', rateKey:'k_pa',  rateLabel:'K/PA',  thresholds:[.13,.22]   },
 };
 
 // ─── FETCH HELPERS ────────────────────────────────────────
@@ -999,12 +1009,12 @@ async function loadData() {
         blendedAvg,
         hPerGame,
         priorAvg: pr ? pr.avg : null,
-        // computed rates (current season)
-        h_ab:  st.atBats  ? st.hits/st.atBats           : 0,
-        hr_ab: st.atBats  ? st.homeRuns/st.atBats        : 0,
-        rbi_ab:st.atBats  ? st.rbi/st.atBats             : 0,
+        // All rates per plate appearance (consistent denominator)
+        h_pa:  st.plateAppearances ? st.hits/st.plateAppearances        : 0,
+        hr_pa: st.plateAppearances ? st.homeRuns/st.plateAppearances    : 0,
+        rbi_pa:st.plateAppearances ? st.rbi/st.plateAppearances         : 0,
         bb_pa: st.plateAppearances ? st.baseOnBalls/st.plateAppearances : 0,
-        k_ab:  st.atBats  ? st.strikeOuts/st.atBats      : 0,
+        k_pa:  st.plateAppearances ? st.strikeOuts/st.plateAppearances  : 0,
         // matchup — filled after schedule fetch
         matchup: teamPitcherMap[s.team?.id] || null,
         // streaks filled in next
@@ -1232,6 +1242,7 @@ function renderContent() {
   // When searching: ignore mode, show all matches regardless of streak
   // When not searching: respect mode filter, only show players with active streaks
   const filtered = applyFiltersRaw();
+  const minStreak = parseInt(document.getElementById('min-streak')?.value || '1', 10) || 1;
 
   let hotData, coldData;
 
@@ -1240,8 +1251,8 @@ function renderContent() {
     hotData  = [...filtered].sort((a,b) => b[statStreakHotKey]  - a[statStreakHotKey]);
     coldData = [...filtered].sort((a,b) => b[statStreakColdKey] - a[statStreakColdKey]);
   } else {
-    hotData  = filtered.filter(p => p[statStreakHotKey]  > 0).sort((a,b) => b[statStreakHotKey]  - a[statStreakHotKey]);
-    coldData = filtered.filter(p => p[statStreakColdKey] > 0).sort((a,b) => b[statStreakColdKey] - a[statStreakColdKey]);
+    hotData  = filtered.filter(p => p[statStreakHotKey]  >= minStreak).sort((a,b) => b[statStreakHotKey]  - a[statStreakHotKey]);
+    coldData = filtered.filter(p => p[statStreakColdKey] >= minStreak).sort((a,b) => b[statStreakColdKey] - a[statStreakColdKey]);
   }
 
   // Column sort override
@@ -1268,7 +1279,7 @@ function renderContent() {
       <th onclick="toggleSort('bb')"  class="${sortCol==='bb' ?'sort-'+sortDir:''}">BB</th>
       <th onclick="toggleSort('k')"   class="${sortCol==='k'  ?'sort-'+sortDir:''}">K</th>
       <th onclick="toggleSort('${cfg.rateKey}')" class="${sortCol===cfg.rateKey?'sort-'+sortDir:''}">${cfg.rateLabel}</th>
-      <th onclick="toggleSort('blendedAvg')" class="${sortCol==='blendedAvg'?'sort-'+sortDir:''}">AVG <span style="font-size:8px;color:var(--muted)">'25+'26</span></th>
+      <th onclick="toggleSort('h_pa')" class="${sortCol==='h_pa'?'sort-'+sortDir:''}">AVG <span style="font-size:8px;color:var(--muted)">'26</span></th>
       <th onclick="toggleSort('hPerGame')" class="${sortCol==='hPerGame'?'sort-'+sortDir:''}">H/G</th>
       <th>Last 10G</th>
       <th>Today's Matchup</th>
@@ -1327,12 +1338,8 @@ function buildRow(p, rank, streakVal, type, pct, rateVal, cfg, logKey) {
     `<div class="gl-dot ${v===1?'hit':'no'}"></div>`
   ).join('');
 
-  // Blended AVG display — show current season in muted if different
-  const blendStr = p.blendedAvg.toFixed(3);
-  const curStr   = p.avg;
-  const avgDisplay = p.priorAvg
-    ? `<span title="${curStr} this season / ${p.priorAvg} last season">${blendStr}<span style="font-size:9px;color:var(--muted);margin-left:3px">${curStr}</span></span>`
-    : `<span>${curStr}</span>`;
+  // AVG — 2026 season only
+  const avgDisplay = `<span>${p.avg}</span>`;
 
   // H/G display
   const hgClass = p.hPerGame >= 1.0 ? 'rate-good' : p.hPerGame >= 0.7 ? 'rate-mid' : 'rate-low';
@@ -1661,7 +1668,7 @@ async function openGameDetail(gamePk, awayAbb, homeAbb, awayName, homeName, away
         const badgeType = hasHot ? 'hot' : hasCold ? 'cold' : 'none';
         const badgeLabel = badgeVal > 0 ? badgeVal : '—';
         const initials = r.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-        const avgStr = r.streakData?.blendedAvg ? r.streakData.blendedAvg.toFixed(3) : (r.streakData?.avg || '—');
+        const avgStr = r.streakData?.avg || '—';
         const rateStr = r.streakData?.[cfg.rateKey] != null ? r.streakData[cfg.rateKey].toFixed(3) : '—';
 
         return `
@@ -1739,7 +1746,7 @@ async function openPlayerModal(playerId) {
     const gameLogs = logResp.stats?.[0]?.splits || [];
 
     // Check if player has today's stats via game log
-    const etDate = et.toISOString().slice(0,10);
+    const etDate = new Date(Date.now() - 4 * 3600000).toISOString().slice(0,10);
     const todayLog = gameLogs.length && gameLogs[gameLogs.length-1].date === etDate ? gameLogs[gameLogs.length-1] : null;
     const last5 = gameLogs.slice(-6); // last 5 + possibly today
 

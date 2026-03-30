@@ -966,6 +966,7 @@ function getTeamAbb(teamObj) {
 }
 let masterPlayers = [];   // full unfiltered list — never mutated after load
 let allPlayers    = [];   // view slice (filtered by minAB)
+let teamPitcherMap = {};  // global: teamId -> { pitcher, gamePk, gameStatus }
 let currentStat   = 'hits';
 let currentMode   = 'all';
 let currentMinAB  = 5;
@@ -1015,7 +1016,8 @@ async function loadData() {
 
     // Build team → opponent pitcher map
     // Away team faces HOME pitcher; home team faces AWAY pitcher
-    const teamPitcherMap = {}; // teamId -> { pitcher: {id, fullName}, gamePk, gameStatus, oppTeamName }
+    // Build team → opponent pitcher map (assign to global)
+    teamPitcherMap = {};
     const teamGameMap = {};    // teamId -> full game obj (for Games tab)
     todayGames.forEach(g => {
       const awayId = g.teams.away.team.id;
@@ -2134,31 +2136,81 @@ async function loadPitcherData() {
     const priorPitMap = {};
     priorSplits.forEach(s => { priorPitMap[s.player.id] = s.stat; });
 
-    const starters = curSplits.filter(s => s.stat.gamesStarted >= 1);
+    // Filter to TRUE starters:
+    // Must have GS >= 1 this season AND (prior GS/GP >= 0.4 OR prior GS >= 8)
+    // This excludes openers and pure relievers who happened to start once
+    const starters = curSplits.filter(s => {
+      if (s.stat.gamesStarted < 1) return false;
+      const pr = priorPitMap[s.player.id];
+      if (!pr) return s.stat.gamesStarted >= 1; // new pitcher, trust current season
+      const prGS = pr.gamesStarted || 0;
+      const prGP = pr.gamesPlayed  || 1;
+      // Require majority starter OR had meaningful starter history
+      return (prGS / prGP) >= 0.4 || prGS >= 8;
+    });
+
+    // Also add today's probable pitchers who have 0 GS in 2026 but are true starters
+    const existingIds = new Set(starters.map(s => s.player.id));
+    const todayProbableIds = Object.values(teamPitcherMap)
+      .map(m => m.pitcher?.id).filter(Boolean);
+
+    const todayMissing = todayProbableIds.filter(id => !existingIds.has(id));
+    // Fetch their stats from priorSplits
+    const todayStarters = [];
+    for (const id of todayMissing) {
+      const pr = priorPitMap[id];
+      if (pr && (pr.gamesStarted || 0) >= 5) {
+        // Find team from teamPitcherMap
+        const matchEntry = Object.entries(teamPitcherMap)
+          .find(([,m]) => m.pitcher?.id === id);
+        const teamId = matchEntry ? parseInt(matchEntry[0]) : null;
+        const pitcherName = Object.values(teamPitcherMap)
+          .find(m => m.pitcher?.id === id)?.pitcher?.fullName || '';
+        todayStarters.push({
+          player: { id, fullName: pitcherName },
+          team: { id: teamId },
+          stat: { gamesStarted: 0, gamesPlayed: 0, era: '—', whip: '—',
+                  inningsPitched: '0', strikeOuts: 0, hits: 0, baseOnBalls: 0,
+                  homeRuns: 0, avg: '—' },
+          _priorOnly: true,
+        });
+      }
+    }
 
     const pitMap = {};
-    starters.forEach(s => {
+    [...starters, ...todayStarters].forEach(s => {
       const id = s.player.id;
+      if (pitMap[id]) return; // no dupes
       const st = s.stat;
       const pr = priorPitMap[id] || null;
-      const curIP  = parseFloat(st.inningsPitched || 0);
-      const prIP   = parseFloat(pr?.inningsPitched || 0);
+      const curIP   = parseFloat(st.inningsPitched || 0);
+      const prIP    = parseFloat(pr?.inningsPitched || 0);
+      // For today's missing starters use prior season stats for display
+      const dispSt  = s._priorOnly && pr ? pr : st;
       const totalIP = curIP + prIP;
-      const gs = (st.gamesStarted||0) + (pr?.gamesStarted||0);
       const r = (n,d) => d > 0 ? (n*9/d).toFixed(2) : '—';
+      const totalH  = (st.hits||0)+(pr?.hits||0);
+      const totalHR = (st.homeRuns||0)+(pr?.homeRuns||0);
+      const totalBB = (st.baseOnBalls||0)+(pr?.baseOnBalls||0);
+      const totalK  = (st.strikeOuts||0)+(pr?.strikeOuts||0);
+      const gs2026  = st.gamesStarted || 0;
+      const gsTotal = gs2026 + (pr?.gamesStarted||0);
+      const ipPerStart = gsTotal > 0 ? ((curIP+prIP)/gsTotal).toFixed(1) : '—';
       pitMap[id] = {
         id, name: s.player.fullName,
         team: getTeamAbb(s.team),
         teamId: s.team?.id,
-        gs: st.gamesStarted || 0,
-        era: st.era || '—', whip: st.whip || '—',
+        gs: gs2026,
+        gsTotal,
+        isTodayOnly: !!s._priorOnly,
+        era:  dispSt.era  || '—',
+        whip: dispSt.whip || '—',
+        baa:  dispSt.avg  || '—',
         ip: st.inningsPitched || '0',
-        ipPerStart: st.gamesStarted ? (curIP/st.gamesStarted).toFixed(1) : '—',
-        k9:  r((st.strikeOuts||0)+(pr?.strikeOuts||0), totalIP),
-        h9:  r((st.hits||0)+(pr?.hits||0), totalIP),
-        bb9: r((st.baseOnBalls||0)+(pr?.baseOnBalls||0), totalIP),
-        baa: st.avg || '—',
-        // streaks filled by game logs
+        ipPerStart,
+        k9:  r(totalK,  totalIP),
+        h9:  r(totalH,  totalIP),
+        bb9: r(totalBB, totalIP),
         log_k:[], log_hits:[], log_bb:[], log_ip:[],
         streak_k_hot:0, streak_k_cold:0,
         streak_hits_hot:0, streak_hits_cold:0,
@@ -2298,35 +2350,16 @@ function renderPitchers() {
   const N      = pitcherThresh;
   const logKey = { k:'log_k', hits:'log_hits', bb:'log_bb', ip:'log_ip' }[pitcherStat];
 
-  // Build today's pitcher ID set from teamPitcherMap
-  const todayPitcherMap = typeof teamPitcherMap !== 'undefined' ? teamPitcherMap : {};
+  // Today's pitcher IDs from global teamPitcherMap
   const todayPitcherIds = new Set(
-    Object.values(todayPitcherMap).map(m => m.pitcher?.id).filter(Boolean)
+    Object.values(teamPitcherMap).map(m => m.pitcher?.id).filter(Boolean)
   );
 
-  // When Pitching Today is active, supplement allPitchers with any today starters
-  // who may not have 2026 stats yet (use their stored data from pitcherStatsMap)
-  let pool = [...allPitchers];
-  if (pitcherTodayOnly) {
-    const existingIds = new Set(allPitchers.map(p => p.id));
-    for (const [teamId, m] of Object.entries(todayPitcherMap)) {
-      const pp = m.pitcher;
-      if (!pp || existingIds.has(pp.id)) continue;
-      const ps = pitcherStatsMap[pp.id];
-      if (ps) {
-        pool.push({
-          id: pp.id, name: pp.fullName, team: getTeamAbb({id: parseInt(teamId)}),
-          gs: 0, era: ps.era, whip: ps.whip, baa: ps.baa,
-          k9: ps.k9, h9: ps.h9, bb9: ps.bb9, ipPerStart: ps.ip,
-          log_k:[], log_hits:[], log_bb:[], log_ip:[],
-        });
-      }
-    }
-  }
-
-  pool = pool.filter(p => {
+  // For Starters Only: require gs >= 1 in 2026 (already filtered in loadPitcherData)
+  // For Pitching Today: show anyone in todayPitcherIds regardless of 2026 GS
+  let pool = allPitchers.filter(p => {
     if (pitcherTodayOnly   && !todayPitcherIds.has(p.id)) return false;
-    if (pitcherStartersOnly && p.gs < 1) return false;
+    if (pitcherStartersOnly && !pitcherTodayOnly && p.gs < 1) return false;
     return true;
   });
 

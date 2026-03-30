@@ -917,9 +917,10 @@
     <span class="ctrl-label">Threshold</span>
     <div class="pill-group" id="pitcher-thresh-pills"></div>
     <div class="sep"></div>
-    <span class="ctrl-label">Starters Only</span>
+    <span class="ctrl-label">Filter</span>
     <div class="pill-group">
-      <div class="pill active-all" id="p-starters-btn" onclick="toggleStartersOnly()">Yes</div>
+      <div class="pill active-all" id="p-starters-btn" onclick="toggleStartersOnly()">Starters Only</div>
+      <div class="pill" id="p-today-btn" onclick="togglePitchingToday()">Pitching Today</div>
     </div>
   </div>
   <div id="pitchers-content">
@@ -1074,6 +1075,7 @@ async function loadData() {
         streak_bb_hot:0,   streak_bb_cold:0,
         streak_k_hot:0,    streak_k_cold:0,
         log_hits:[], log_hr:[], log_rbi:[], log_bb:[], log_k:[],
+        raw_hits:[], raw_hr:[], raw_rbi:[], raw_k:[],
       };
     });
 
@@ -1129,6 +1131,7 @@ async function fetchPlayerStreaks(id, playerMap, season) {
 
     const p = playerMap[id];
     const logH=[], logHR=[], logRBI=[], logBB=[], logK=[];
+    const rawH=[], rawHR=[], rawRBI=[], rawK=[];  // raw counts for threshold tab
 
     for (const s of splits) {
       const st = s.stat;
@@ -1137,13 +1140,22 @@ async function fetchPlayerStreaks(id, playerMap, season) {
       logRBI.push(st.rbi > 0 ? 1 : 0);
       logBB.push(st.baseOnBalls > 0 ? 1 : 0);
       logK.push(st.strikeOuts > 0 ? 1 : 0);
+      rawH.push(st.hits || 0);
+      rawHR.push(st.homeRuns || 0);
+      rawRBI.push(st.rbi || 0);
+      rawK.push(st.strikeOuts || 0);
     }
 
-    p.log_hits = logH.slice(-10);
-    p.log_hr   = logHR.slice(-10);
-    p.log_rbi  = logRBI.slice(-10);
-    p.log_bb   = logBB.slice(-10);
-    p.log_k    = logK.slice(-10);
+    p.log_hits = logH.slice(-20);
+    p.log_hr   = logHR.slice(-20);
+    p.log_rbi  = logRBI.slice(-20);
+    p.log_bb   = logBB.slice(-20);
+    p.log_k    = logK.slice(-20);
+    // Raw per-game counts for threshold tab
+    p.raw_hits = rawH.slice(-20);
+    p.raw_hr   = rawHR.slice(-20);
+    p.raw_rbi  = rawRBI.slice(-20);
+    p.raw_k    = rawK.slice(-20);
 
     p.streak_hits_hot  = calcHot(logH);
     p.streak_hits_cold = calcCold(logH);
@@ -1892,10 +1904,10 @@ let threshVal  = 1;
 let threshMinAB = 5;
 
 const THRESH_CONFIG = {
-  hits: { label:'Hits',       vals:[1,2,3,4,5],    logKey:'log_hits', hotDesc:'games with N+ hits',   coldDesc:'games without N+ hits' },
-  hr:   { label:'Home Runs',  vals:[1,2,3],         logKey:'log_hr',   hotDesc:'games with N+ HR',     coldDesc:'games without N+ HR'   },
-  rbi:  { label:'RBI',        vals:[1,2,3,4,5],     logKey:'log_rbi',  hotDesc:'games with N+ RBI',    coldDesc:'games without N+ RBI'  },
-  k:    { label:'Strikeouts', vals:[1,2,3,4,5,6,7,8,9,10], logKey:'log_k', hotDesc:'games with N+ K', coldDesc:'games without N+ K'    },
+  hits: { label:'Hits',       vals:[1,2,3,4,5],    rawKey:'raw_hits', logKey:'log_hits', hotLabel:'Hit Streak',   coldLabel:'Hitless Streak' },
+  hr:   { label:'Home Runs',  vals:[1,2,3],         rawKey:'raw_hr',   logKey:'log_hr',   hotLabel:'HR Streak',    coldLabel:'HR Drought'     },
+  rbi:  { label:'RBI',        vals:[1,2,3,4,5],     rawKey:'raw_rbi',  logKey:'log_rbi',  hotLabel:'RBI Streak',   coldLabel:'RBI Drought'    },
+  k:    { label:'Strikeouts', vals:[1,2,3,4,5,6,7,8,9,10], rawKey:'raw_k', logKey:'log_k', hotLabel:'K Streak', coldLabel:'K-Free Streak'  },
 };
 
 function initThresholds() {
@@ -1933,44 +1945,48 @@ function setThreshAB(n, el) {
 
 function renderThresholds() {
   const cfg = THRESH_CONFIG[threshStat];
-  const N = threshVal;
+  const N   = threshVal;
   const content = document.getElementById('thresholds-content');
 
-  // For each player, recalc streak based on threshold from their game log
   const players = masterPlayers.filter(p => p.ab >= threshMinAB);
 
-  // Recalculate streaks based on threshold
-  const withStreaks = players.map(p => {
-    const log = p[cfg.logKey] || [];
-    // log contains 0/1 per game — we need to check the raw game log values
-    // Since we only stored 0/1, rebuild threshold logic:
-    // For hits: stored as 1 if hits>0. We need hits>=N.
-    // We don't have per-game raw counts stored... 
-    // BUT we DO have the log for hits which is 1=got a hit, 0=no hit
-    // For threshold >1, we'd need raw counts. 
-    // Solution: for threshold=1, use stored log. For threshold>1, approximate using hPerGame
-    // Actually let's store raw counts in log during streak fetch — need to refactor
-    // For now: use stored 0/1 log for threshold=1, and filter differently for higher
-    let hotStreak = 0, coldStreak = 0;
-    if (N === 1) {
-      hotStreak  = calcHot(log);
-      coldStreak = calcCold(log);
-    } else {
-      // Use blended rate to flag: player likely gets N+ if their rate is high enough
-      // This is approximate — real fix requires raw per-game counts
-      const rate = threshStat === 'hits' ? p.h_pa :
-                   threshStat === 'hr'   ? p.hr_pa :
-                   threshStat === 'rbi'  ? p.rbi_pa : p.k_pa;
-      hotStreak  = calcHot(log);
-      coldStreak = calcCold(log);
+  // Calc streaks from raw per-game counts
+  function calcRawHot(rawLog, n) {
+    let c = 0;
+    for (let i = rawLog.length-1; i >= 0; i--) {
+      if (rawLog[i] >= n) c++; else break;
     }
-    return { ...p, tHot: hotStreak, tCold: coldStreak };
+    return c;
+  }
+  function calcRawCold(rawLog, n) {
+    let c = 0;
+    for (let i = rawLog.length-1; i >= 0; i--) {
+      if (rawLog[i] < n) c++; else break;
+    }
+    return c;
+  }
+
+  const withStreaks = players.map(p => {
+    const raw = p[cfg.rawKey] || [];
+    // For threshold=1 with no raw data, fall back to 0/1 log
+    const useLog = raw.length === 0;
+    const log01  = p[cfg.logKey] || [];
+    const hot  = useLog ? calcHot(log01)        : calcRawHot(raw, N);
+    const cold = useLog ? calcCold(log01)       : calcRawCold(raw, N);
+    // Build last-10 dots using raw counts
+    const dots10 = (raw.length ? raw : log01).slice(-10).map(v => {
+      const hit = raw.length ? v >= N : v >= 1;
+      return `<div class="gl-dot ${hit?'hit':'no'}" title="${v}"></div>`;
+    }).join('');
+    return { ...p, tHot: hot, tCold: cold, dots10 };
   });
 
   const hotData  = withStreaks.filter(p => p.tHot  >= 1).sort((a,b) => b.tHot  - a.tHot);
   const coldData = withStreaks.filter(p => p.tCold >= 1).sort((a,b) => b.tCold - a.tCold);
   const hotMax   = hotData[0]?.tHot   || 1;
   const coldMax  = coldData[0]?.tCold || 1;
+
+  const thead = `<thead><tr><th>#</th><th>Player</th><th>Streak</th><th>AB</th><th>PA</th><th>H</th><th>HR</th><th>RBI</th><th>K</th><th>AVG</th><th>Last 10G</th></tr></thead>`;
 
   const buildRows = (data, type, maxVal) => data.slice(0,50).map((p, i) => {
     const sv = type === 'hot' ? p.tHot : p.tCold;
@@ -1989,20 +2005,19 @@ function renderThresholds() {
       <td class="mono">${p.ab}</td><td class="mono">${p.pa}</td>
       <td class="mono">${p.h}</td><td class="mono">${p.hr}</td><td class="mono">${p.rbi}</td>
       <td class="mono">${p.k}</td><td class="avg">${p.avg}</td>
+      <td><div class="gl-dots">${p.dots10}</div></td>
     </tr>`;
   }).join('');
 
-  const thead = `<thead><tr><th>#</th><th>Player</th><th>Streak</th><th>AB</th><th>PA</th><th>H</th><th>HR</th><th>RBI</th><th>K</th><th>AVG</th></tr></thead>`;
-
   content.innerHTML = `
   <div class="section-header">
-    <div class="section-title hot">🔥 ${N}+ ${cfg.label} — Hot Streak</div>
+    <div class="section-title hot">🔥 ${N}+ ${cfg.label} — ${cfg.hotLabel}</div>
     <div class="streak-meta">Consecutive games with ${N}+ ${cfg.label.toLowerCase()}</div>
     <div class="count-badge">${hotData.length} players</div>
   </div>
   <div class="table-wrap"><table>${thead}<tbody>${buildRows(hotData,'hot',hotMax)}</tbody></table></div>
   <div class="section-header" style="margin-top:24px">
-    <div class="section-title cold">🧊 ${N}+ ${cfg.label} Drought</div>
+    <div class="section-title cold">🧊 ${N}+ ${cfg.label} — ${cfg.coldLabel}</div>
     <div class="streak-meta">Consecutive games without ${N}+ ${cfg.label.toLowerCase()}</div>
     <div class="count-badge">${coldData.length} players</div>
   </div>
@@ -2015,7 +2030,8 @@ function renderThresholds() {
 let pitcherStat        = 'k';
 let pitcherThresh      = 5;
 let pitcherStartersOnly = true;
-let allPitchers        = [];  // loaded once
+let pitcherTodayOnly   = false;
+let allPitchers        = [];
 let pitcherLogsLoaded  = false;
 
 const PITCHER_STAT_CONFIG = {
@@ -2147,9 +2163,17 @@ function setPitcherThresh(v) {
 
 function toggleStartersOnly() {
   pitcherStartersOnly = !pitcherStartersOnly;
-  const btn = document.getElementById('p-starters-btn');
-  btn.textContent = pitcherStartersOnly ? 'Yes' : 'No';
-  btn.className = 'pill' + (pitcherStartersOnly ? ' active-all' : '');
+  if (pitcherStartersOnly) pitcherTodayOnly = false;
+  document.getElementById('p-starters-btn').className = 'pill' + (pitcherStartersOnly ? ' active-all' : '');
+  document.getElementById('p-today-btn').className    = 'pill' + (pitcherTodayOnly    ? ' active-all' : '');
+  renderPitchers();
+}
+
+function togglePitchingToday() {
+  pitcherTodayOnly = !pitcherTodayOnly;
+  if (pitcherTodayOnly) pitcherStartersOnly = false;
+  document.getElementById('p-starters-btn').className = 'pill' + (pitcherStartersOnly ? ' active-all' : '');
+  document.getElementById('p-today-btn').className    = 'pill' + (pitcherTodayOnly    ? ' active-all' : '');
   renderPitchers();
 }
 
@@ -2176,7 +2200,15 @@ function renderPitchers() {
   const N   = pitcherThresh;
   const logKey = { k:'log_k', hits:'log_hits', bb:'log_bb', ip:'log_ip' }[pitcherStat];
 
+  // Build set of today's starting pitcher IDs from teamPitcherMap
+  const todayPitcherIds = new Set(
+    Object.values(typeof teamPitcherMap !== 'undefined' ? teamPitcherMap : {})
+      .map(m => m.pitcher?.id)
+      .filter(Boolean)
+  );
+
   const pool = allPitchers.filter(p => {
+    if (pitcherTodayOnly   && !todayPitcherIds.has(p.id)) return false;
     if (pitcherStartersOnly && p.gs < 1) return false;
     return p[logKey]?.length > 0;
   });
@@ -2221,7 +2253,7 @@ function renderPitchers() {
     }).join('');
     const initials = p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
     const sc = statColor(p);
-    return `<tr>
+    return `<tr style="cursor:pointer" onclick="openPitcherModal(${p.id})">
       <td>${i+1}</td>
       <td><div class="player-cell">
         <div class="player-avatar"><img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_60,q_auto:best/v1/people/${p.id}/headshot/silo/current" onerror="this.style.display='none';this.parentElement.textContent='${initials}'" alt=""></div>
@@ -2257,6 +2289,105 @@ function renderPitchers() {
     <div class="count-badge">${coldData.length} pitchers</div>
   </div>
   <div class="table-wrap"><table>${thead}<tbody>${buildPRows(coldData,'cold',coldMax)}</tbody></table></div>`;
+}
+
+// ─── PITCHER MODAL ────────────────────────────────────────
+async function openPitcherModal(pitcherId) {
+  const overlay = document.getElementById('player-modal');
+  const content = document.getElementById('modal-content');
+  overlay.classList.add('active');
+  content.innerHTML = `<div class="state-box" style="padding:40px"><div class="spinner"></div><div class="msg">LOADING…</div></div>`;
+
+  try {
+    const season = new Date(Date.now() - 4 * 3600000).toISOString().slice(0,4);
+    const prior  = String(parseInt(season) - 1);
+    const pitcher = allPitchers.find(p => p.id === pitcherId);
+    const initials = pitcher?.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() || '??';
+
+    // Fetch game log for last 5 starts (combine seasons)
+    const [curLog, priorLog] = await Promise.all([
+      fetchJSON(`${API}/people/${pitcherId}/stats?stats=gameLog&group=pitching&season=${season}&gameType=R`),
+      fetchJSON(`${API}/people/${pitcherId}/stats?stats=gameLog&group=pitching&season=${prior}&gameType=R`),
+    ]);
+    const curSplits   = curLog.stats?.[0]?.splits || [];
+    const priorSplits = priorLog.stats?.[0]?.splits || [];
+    const combined    = [...priorSplits, ...curSplits];
+    const last5       = combined.slice(-5);
+    const etDate      = new Date(Date.now() - 4 * 3600000).toISOString().slice(0,10);
+
+    // Season stat snapshot
+    const snap = pitcher ? `
+    <div class="stat-snapshot" style="grid-template-columns:repeat(6,1fr)">
+      <div class="snap-box"><div class="snap-val">${pitcher.era}</div><div class="snap-lbl">ERA</div></div>
+      <div class="snap-box"><div class="snap-val">${pitcher.whip}</div><div class="snap-lbl">WHIP</div></div>
+      <div class="snap-box"><div class="snap-val">${pitcher.k9}</div><div class="snap-lbl">K/9</div></div>
+      <div class="snap-box"><div class="snap-val">${pitcher.h9}</div><div class="snap-lbl">H/9</div></div>
+      <div class="snap-box"><div class="snap-val">${pitcher.bb9}</div><div class="snap-lbl">BB/9</div></div>
+      <div class="snap-box"><div class="snap-val">${pitcher.ipPerStart}</div><div class="snap-lbl">IP/GS</div></div>
+    </div>` : '';
+
+    // Active pitcher streaks
+    const streakPills = Object.entries(PITCHER_STAT_CONFIG).map(([sk, cfg]) => {
+      const logKey = { k:'log_k', hits:'log_hits', bb:'log_bb', ip:'log_ip' }[sk];
+      const log = pitcher?.[logKey] || [];
+      const defaultThresh = { k:5, hits:6, bb:2, ip:5 }[sk];
+      const hot  = calcPitcherStreakHot(log, defaultThresh);
+      const cold = calcPitcherStreakCold(log, defaultThresh);
+      if (hot  > 0) return `<div class="streak-pill hot">🔥 ${hot} start${hot>1?'s':''} ${defaultThresh}+ ${cfg.label}</div>`;
+      if (cold > 0) return `<div class="streak-pill cold">🧊 ${cold} start${cold>1?'s':''} under ${defaultThresh} ${cfg.label}</div>`;
+      return `<div class="streak-pill zero">${cfg.label}: —</div>`;
+    }).join('');
+
+    // Game log table — last 5 starts
+    const logRows = last5.map(s => {
+      const st = s.stat;
+      const isToday = s.date === etDate;
+      const opp = s.opponent?.abbreviation || s.opponent?.name?.slice(0,3) || '?';
+      const ip = parseFloat(st.inningsPitched || 0);
+      const kClass = (st.strikeOuts||0) >= 6 ? 'hit-cell' : '';
+      const ipClass = ip >= 6 ? 'hit-cell' : ip < 5 ? 'no-cell' : '';
+      const erClass = (st.earnedRuns||0) <= 2 ? 'hit-cell' : (st.earnedRuns||0) >= 5 ? 'no-cell' : '';
+      return `<tr class="${isToday?'today-row':''}">
+        <td>${isToday?'<strong>Today</strong>':s.date.slice(5)}</td>
+        <td>vs ${opp}</td>
+        <td class="${ipClass}">${st.inningsPitched||0}</td>
+        <td class="${kClass}">${st.strikeOuts||0}</td>
+        <td>${st.hits||0}</td>
+        <td>${st.baseOnBalls||0}</td>
+        <td class="${erClass}">${st.earnedRuns||0}</td>
+        <td>${st.wins?'W':st.losses?'L':'ND'}</td>
+        <td style="color:var(--muted2)">${st.summary||''}</td>
+      </tr>`;
+    }).join('');
+
+    content.innerHTML = `
+    <div class="modal-header">
+      <div class="modal-avatar">
+        <img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_120,q_auto:best/v1/people/${pitcherId}/headshot/silo/current"
+             onerror="this.style.display='none';this.parentElement.textContent='${initials}'" alt="">
+      </div>
+      <div>
+        <div class="modal-name">${pitcher?.name || 'Pitcher'}</div>
+        <div class="modal-meta">${pitcher?.team || ''} · ${pitcher?.gs||0} GS · ${season} Season · BAA ${pitcher?.baa||'—'}</div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-title">SEASON STATS</div>
+      ${snap}
+      <div class="modal-section-title">ACTIVE STREAKS <span style="font-size:9px;color:var(--muted)">(at default thresholds)</span></div>
+      <div class="streak-pills">${streakPills}</div>
+      <div class="modal-section-title">LAST ${last5.length} STARTS</div>
+      ${last5.length ? `
+      <table class="gl-table">
+        <thead><tr><th>Date</th><th>Opp</th><th>IP</th><th>K</th><th>H</th><th>BB</th><th>ER</th><th>Dec</th><th>Line</th></tr></thead>
+        <tbody>${logRows}</tbody>
+      </table>` : '<div style="color:var(--muted);font-size:11px">No starts available yet.</div>'}
+    </div>`;
+
+  } catch(e) {
+    content.innerHTML = `<div class="state-box"><div class="msg">⚠ ${e.message}</div></div>`;
+  }
 }
 
 // ─── BOOT ─────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BallScan — MLB Streak Tracker</title>
+<title>StreakWatchers — MLB</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -802,7 +802,7 @@
 <!-- HEADER -->
 <header>
   <div>
-    <div class="logo">BallScan</div>
+    <div class="logo">StreakWatchers</div>
     <div class="logo-sub">MLB · Streak Intelligence</div>
   </div>
   <div id="live-badge"><div class="live-dot"></div>LIVE</div>
@@ -891,6 +891,13 @@
     <span class="ctrl-label">Min Per Game</span>
     <div class="pill-group" id="thresh-val-pills"></div>
     <div class="sep"></div>
+    <span class="ctrl-label">Mode</span>
+    <div class="pill-group">
+      <div class="pill active-all" id="t-mode-all"  onclick="setThreshMode('all')">All</div>
+      <div class="pill" id="t-mode-hot"  onclick="setThreshMode('hot')">🔥 Hot</div>
+      <div class="pill" id="t-mode-cold" onclick="setThreshMode('cold')">🧊 Cold</div>
+    </div>
+    <div class="sep"></div>
     <span class="ctrl-label">Min AB</span>
     <div class="pill-group">
       <div class="pill active-all" data-tab="5"  onclick="setThreshAB(5,this)">5</div>
@@ -916,6 +923,13 @@
     <div class="sep"></div>
     <span class="ctrl-label">Threshold</span>
     <div class="pill-group" id="pitcher-thresh-pills"></div>
+    <div class="sep"></div>
+    <span class="ctrl-label">Mode</span>
+    <div class="pill-group">
+      <div class="pill active-all" id="p-mode-all"  onclick="setPitcherMode('all')">All</div>
+      <div class="pill" id="p-mode-hot"  onclick="setPitcherMode('hot')">🔥 Hot</div>
+      <div class="pill" id="p-mode-cold" onclick="setPitcherMode('cold')">🧊 Cold</div>
+    </div>
     <div class="sep"></div>
     <span class="ctrl-label">Filter</span>
     <div class="pill-group">
@@ -1037,11 +1051,17 @@ async function loadData() {
       const pr = priorMap[id] || null;
 
       // Blended hits/AB across current + prior season
-      const totalH  = (st.hits || 0)   + (pr ? (pr.hits || 0)   : 0);
-      const totalAB = (st.atBats || 0) + (pr ? (pr.atBats || 0) : 0);
-      const totalG  = (st.gamesPlayed || 0) + (pr ? (pr.gamesPlayed || 0) : 0);
-      const blendedAvg = totalAB > 0 ? (totalH / totalAB) : 0;
-      const hPerGame   = totalG  > 0 ? (totalH / totalG)  : 0;
+      const totalH   = (st.hits || 0)      + (pr ? (pr.hits || 0)      : 0);
+      const totalHR  = (st.homeRuns || 0)  + (pr ? (pr.homeRuns || 0)  : 0);
+      const totalRBI = (st.rbi || 0)       + (pr ? (pr.rbi || 0)       : 0);
+      const totalK   = (st.strikeOuts || 0)+ (pr ? (pr.strikeOuts || 0): 0);
+      const totalAB  = (st.atBats || 0)    + (pr ? (pr.atBats || 0)    : 0);
+      const totalG   = (st.gamesPlayed || 0) + (pr ? (pr.gamesPlayed || 0) : 0);
+      const blendedAvg  = totalAB > 0 ? (totalH  / totalAB) : 0;
+      const hPerGame    = totalG  > 0 ? (totalH  / totalG)  : 0;
+      const hrPerGame   = totalG  > 0 ? (totalHR / totalG)  : 0;
+      const rbiPerGame  = totalG  > 0 ? (totalRBI/ totalG)  : 0;
+      const kPerGame    = totalG  > 0 ? (totalK  / totalG)  : 0;
 
       playerMap[id] = {
         id,
@@ -1058,7 +1078,7 @@ async function loadData() {
         k:    st.strikeOuts || 0,
         avg:  st.avg || '.000',
         blendedAvg,
-        hPerGame,
+        hPerGame, hrPerGame, rbiPerGame, kPerGame,
         priorAvg: pr ? pr.avg : null,
         // All rates per plate appearance (consistent denominator)
         h_pa:  st.plateAppearances ? st.hits/st.plateAppearances        : 0,
@@ -1904,10 +1924,10 @@ let threshVal  = 1;
 let threshMinAB = 5;
 
 const THRESH_CONFIG = {
-  hits: { label:'Hits',       vals:[1,2,3,4,5],    rawKey:'raw_hits', logKey:'log_hits', hotLabel:'Hit Streak',   coldLabel:'Hitless Streak' },
-  hr:   { label:'Home Runs',  vals:[1,2,3],         rawKey:'raw_hr',   logKey:'log_hr',   hotLabel:'HR Streak',    coldLabel:'HR Drought'     },
-  rbi:  { label:'RBI',        vals:[1,2,3,4,5],     rawKey:'raw_rbi',  logKey:'log_rbi',  hotLabel:'RBI Streak',   coldLabel:'RBI Drought'    },
-  k:    { label:'Strikeouts', vals:[1,2,3,4,5,6,7,8,9,10], rawKey:'raw_k', logKey:'log_k', hotLabel:'K Streak', coldLabel:'K-Free Streak'  },
+  hits: { label:'Hits',       vals:[1,2,3,4,5],    rawKey:'raw_hits', logKey:'log_hits', hotLabel:'Hit Streak',   coldLabel:'Hitless Streak', rateKey:'hPerGame',  rateLabel:'H/G'   },
+  hr:   { label:'Home Runs',  vals:[1,2,3],         rawKey:'raw_hr',   logKey:'log_hr',   hotLabel:'HR Streak',    coldLabel:'HR Drought',     rateKey:'hrPerGame', rateLabel:'HR/G'  },
+  rbi:  { label:'RBI',        vals:[1,2,3,4,5],     rawKey:'raw_rbi',  logKey:'log_rbi',  hotLabel:'RBI Streak',   coldLabel:'RBI Drought',    rateKey:'rbiPerGame',rateLabel:'RBI/G' },
+  k:    { label:'Strikeouts', vals:[1,2,3,4,5,6,7,8,9,10], rawKey:'raw_k', logKey:'log_k', hotLabel:'K Streak', coldLabel:'K-Free Streak',  rateKey:'kPerGame',  rateLabel:'K/G'   },
 };
 
 function initThresholds() {
@@ -1986,7 +2006,44 @@ function renderThresholds() {
   const hotMax   = hotData[0]?.tHot   || 1;
   const coldMax  = coldData[0]?.tCold || 1;
 
-  const thead = `<thead><tr><th>#</th><th>Player</th><th>Streak</th><th>AB</th><th>PA</th><th>H</th><th>HR</th><th>RBI</th><th>K</th><th>AVG</th><th>Last 10G</th></tr></thead>`;
+  const rateVal  = p => {
+    const v = p[cfg.rateKey] || 0;
+    return v > 0 ? v.toFixed(2) : '—';
+  };
+  const rateClass = p => {
+    const v = p[cfg.rateKey] || 0;
+    const thresholds = { hPerGame:[0.7,1.0], hrPerGame:[0.05,0.12], rbiPerGame:[0.35,0.65], kPerGame:[0.55,0.85] };
+    const [lo,hi] = thresholds[cfg.rateKey] || [0,0];
+    return v >= hi ? 'rate-good' : v >= lo ? 'rate-mid' : 'rate-low';
+  };
+
+  const tsc = col => threshSortCol===col ? 'sort-'+threshSortDir : '';
+  if (threshSortCol !== 'streak') {
+    const sf = (a,b) => threshSortDir==='desc' ? (b[threshSortCol]||0)-(a[threshSortCol]||0) : (a[threshSortCol]||0)-(b[threshSortCol]||0);
+    withStreaks.sort(sf);
+    // re-derive hotData/coldData after sort
+  }
+  const hotDataSorted  = threshSortCol === 'streak'
+    ? withStreaks.filter(p => p.tHot  >= 1).sort((a,b) => b.tHot  - a.tHot)
+    : withStreaks.filter(p => p.tHot  >= 1).sort((a,b) => threshSortDir==='desc' ? (b[threshSortCol]||0)-(a[threshSortCol]||0) : (a[threshSortCol]||0)-(b[threshSortCol]||0));
+  const coldDataSorted = threshSortCol === 'streak'
+    ? withStreaks.filter(p => p.tCold >= 1).sort((a,b) => b.tCold - a.tCold)
+    : withStreaks.filter(p => p.tCold >= 1).sort((a,b) => threshSortDir==='desc' ? (b[threshSortCol]||0)-(a[threshSortCol]||0) : (a[threshSortCol]||0)-(b[threshSortCol]||0));
+  const hotMax2  = hotDataSorted[0]?.tHot   || 1;
+  const coldMax2 = coldDataSorted[0]?.tCold || 1;
+
+  const thead = `<thead><tr>
+    <th>#</th><th>Player</th>
+    <th onclick="toggleThreshSort('streak')" class="${tsc('streak')}">Streak</th>
+    <th onclick="toggleThreshSort('ab')"  class="${tsc('ab')}">AB</th>
+    <th onclick="toggleThreshSort('pa')"  class="${tsc('pa')}">PA</th>
+    <th onclick="toggleThreshSort('h')"   class="${tsc('h')}">H</th>
+    <th onclick="toggleThreshSort('hr')"  class="${tsc('hr')}">HR</th>
+    <th onclick="toggleThreshSort('rbi')" class="${tsc('rbi')}">RBI</th>
+    <th onclick="toggleThreshSort('k')"   class="${tsc('k')}">K</th>
+    <th onclick="toggleThreshSort('${cfg.rateKey}')" class="${tsc(cfg.rateKey)}">${cfg.rateLabel}</th>
+    <th>Last 10G</th>
+  </tr></thead>`;
 
   const buildRows = (data, type, maxVal) => data.slice(0,50).map((p, i) => {
     const sv = type === 'hot' ? p.tHot : p.tCold;
@@ -2004,24 +2061,31 @@ function renderThresholds() {
       </div></td>
       <td class="mono">${p.ab}</td><td class="mono">${p.pa}</td>
       <td class="mono">${p.h}</td><td class="mono">${p.hr}</td><td class="mono">${p.rbi}</td>
-      <td class="mono">${p.k}</td><td class="avg">${p.avg}</td>
+      <td class="mono">${p.k}</td><td class="mono ${rateClass(p)}">${rateVal(p)}</td>
       <td><div class="gl-dots">${p.dots10}</div></td>
     </tr>`;
   }).join('');
 
+  const showTHot  = threshMode !== 'cold';
+  const showTCold = threshMode !== 'hot';
+
   content.innerHTML = `
+  ${showTHot ? `
   <div class="section-header">
     <div class="section-title hot">🔥 ${N}+ ${cfg.label} — ${cfg.hotLabel}</div>
     <div class="streak-meta">Consecutive games with ${N}+ ${cfg.label.toLowerCase()}</div>
-    <div class="count-badge">${hotData.length} players</div>
+    <div class="count-badge">${hotDataSorted.length} players</div>
   </div>
-  <div class="table-wrap"><table>${thead}<tbody>${buildRows(hotData,'hot',hotMax)}</tbody></table></div>
-  <div class="section-header" style="margin-top:24px">
+  <div class="table-wrap"><table>${thead}<tbody>${buildRows(hotDataSorted,'hot',hotMax2)}</tbody></table></div>
+  ` : ''}
+  ${showTCold ? `
+  <div class="section-header" style="${showTHot?'margin-top:24px':''}">
     <div class="section-title cold">🧊 ${N}+ ${cfg.label} — ${cfg.coldLabel}</div>
     <div class="streak-meta">Consecutive games without ${N}+ ${cfg.label.toLowerCase()}</div>
-    <div class="count-badge">${coldData.length} players</div>
+    <div class="count-badge">${coldDataSorted.length} players</div>
   </div>
-  <div class="table-wrap"><table>${thead}<tbody>${buildRows(coldData,'cold',coldMax)}</tbody></table></div>`;
+  <div class="table-wrap"><table>${thead}<tbody>${buildRows(coldDataSorted,'cold',coldMax2)}</tbody></table></div>
+  ` : ''}`;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2029,6 +2093,12 @@ function renderThresholds() {
 // ═══════════════════════════════════════════════════════════
 let pitcherStat        = 'k';
 let pitcherThresh      = 5;
+let pitcherMode        = 'all';   // all | hot | cold
+let pitcherSortCol     = 'streak';
+let pitcherSortDir     = 'desc';
+let threshMode         = 'all';   // all | hot | cold
+let threshSortCol      = 'streak';
+let threshSortDir      = 'desc';
 let pitcherStartersOnly = true;
 let pitcherTodayOnly   = false;
 let allPitchers        = [];
@@ -2169,6 +2239,34 @@ function toggleStartersOnly() {
   renderPitchers();
 }
 
+function setPitcherMode(mode) {
+  pitcherMode = mode;
+  document.getElementById('p-mode-all').className  = 'pill' + (mode==='all'  ? ' active-all'  : '');
+  document.getElementById('p-mode-hot').className  = 'pill' + (mode==='hot'  ? ' active-hot'  : '');
+  document.getElementById('p-mode-cold').className = 'pill' + (mode==='cold' ? ' active-cold' : '');
+  renderPitchers();
+}
+
+function setThreshMode(mode) {
+  threshMode = mode;
+  document.getElementById('t-mode-all').className  = 'pill' + (mode==='all'  ? ' active-all'  : '');
+  document.getElementById('t-mode-hot').className  = 'pill' + (mode==='hot'  ? ' active-hot'  : '');
+  document.getElementById('t-mode-cold').className = 'pill' + (mode==='cold' ? ' active-cold' : '');
+  renderThresholds();
+}
+
+function togglePitcherSort(col) {
+  if (pitcherSortCol === col) pitcherSortDir = pitcherSortDir === 'desc' ? 'asc' : 'desc';
+  else { pitcherSortCol = col; pitcherSortDir = 'desc'; }
+  renderPitchers();
+}
+
+function toggleThreshSort(col) {
+  if (threshSortCol === col) threshSortDir = threshSortDir === 'desc' ? 'asc' : 'desc';
+  else { threshSortCol = col; threshSortDir = 'desc'; }
+  renderThresholds();
+}
+
 function togglePitchingToday() {
   pitcherTodayOnly = !pitcherTodayOnly;
   if (pitcherTodayOnly) pitcherStartersOnly = false;
@@ -2196,50 +2294,91 @@ function renderPitchers() {
   const content = document.getElementById('pitchers-content');
   if (!pitcherLogsLoaded || !allPitchers.length) return;
 
-  const cfg = PITCHER_STAT_CONFIG[pitcherStat];
-  const N   = pitcherThresh;
+  const cfg    = PITCHER_STAT_CONFIG[pitcherStat];
+  const N      = pitcherThresh;
   const logKey = { k:'log_k', hits:'log_hits', bb:'log_bb', ip:'log_ip' }[pitcherStat];
 
-  // Build set of today's starting pitcher IDs from teamPitcherMap
+  // Build today's pitcher ID set from teamPitcherMap
+  const todayPitcherMap = typeof teamPitcherMap !== 'undefined' ? teamPitcherMap : {};
   const todayPitcherIds = new Set(
-    Object.values(typeof teamPitcherMap !== 'undefined' ? teamPitcherMap : {})
-      .map(m => m.pitcher?.id)
-      .filter(Boolean)
+    Object.values(todayPitcherMap).map(m => m.pitcher?.id).filter(Boolean)
   );
 
-  const pool = allPitchers.filter(p => {
+  // When Pitching Today is active, supplement allPitchers with any today starters
+  // who may not have 2026 stats yet (use their stored data from pitcherStatsMap)
+  let pool = [...allPitchers];
+  if (pitcherTodayOnly) {
+    const existingIds = new Set(allPitchers.map(p => p.id));
+    for (const [teamId, m] of Object.entries(todayPitcherMap)) {
+      const pp = m.pitcher;
+      if (!pp || existingIds.has(pp.id)) continue;
+      const ps = pitcherStatsMap[pp.id];
+      if (ps) {
+        pool.push({
+          id: pp.id, name: pp.fullName, team: getTeamAbb({id: parseInt(teamId)}),
+          gs: 0, era: ps.era, whip: ps.whip, baa: ps.baa,
+          k9: ps.k9, h9: ps.h9, bb9: ps.bb9, ipPerStart: ps.ip,
+          log_k:[], log_hits:[], log_bb:[], log_ip:[],
+        });
+      }
+    }
+  }
+
+  pool = pool.filter(p => {
     if (pitcherTodayOnly   && !todayPitcherIds.has(p.id)) return false;
     if (pitcherStartersOnly && p.gs < 1) return false;
-    return p[logKey]?.length > 0;
+    return true;
   });
 
   const withStreaks = pool.map(p => ({
     ...p,
-    pHot:  calcPitcherStreakHot(p[logKey],  N),
-    pCold: calcPitcherStreakCold(p[logKey], N),
+    pHot:  calcPitcherStreakHot(p[logKey] || [],  N),
+    pCold: calcPitcherStreakCold(p[logKey] || [], N),
   }));
 
-  const hotData  = withStreaks.filter(p => p.pHot  >= 1).sort((a,b) => b.pHot  - a.pHot);
-  const coldData = withStreaks.filter(p => p.pCold >= 1).sort((a,b) => b.pCold - a.pCold);
-  const hotMax   = hotData[0]?.pHot   || 1;
-  const coldMax  = coldData[0]?.pCold || 1;
+  // Sort
+  const sortFn = (a, b, col, dir) => {
+    const va = col === 'streak' ? 0 : parseFloat(a[col]) || 0;
+    const vb = col === 'streak' ? 0 : parseFloat(b[col]) || 0;
+    return dir === 'desc' ? vb - va : va - vb;
+  };
 
-  // Stat display for relevant column
-  const statCol = { k:'K/9', hits:'H/9', bb:'BB/9', ip:'IP/Start' }[pitcherStat];
-  const statFn  = p => ({ k: p.k9, hits: p.h9, bb: p.bb9, ip: p.ipPerStart })[pitcherStat];
-  const statColor = (p) => {
+  let hotData  = withStreaks.filter(p => p.pHot  >= 1).sort((a,b) => b.pHot - a.pHot);
+  let coldData = withStreaks.filter(p => p.pCold >= 1).sort((a,b) => b.pCold - a.pCold);
+
+  if (pitcherSortCol !== 'streak') {
+    hotData.sort((a,b)  => sortFn(a, b, pitcherSortCol, pitcherSortDir));
+    coldData.sort((a,b) => sortFn(a, b, pitcherSortCol, pitcherSortDir));
+  }
+
+  const hotMax  = withStreaks.reduce((m,p) => Math.max(m,p.pHot),  1);
+  const coldMax = withStreaks.reduce((m,p) => Math.max(m,p.pCold), 1);
+
+  // Stat display
+  const statCol  = { k:'K/9', hits:'H/9', bb:'BB/9', ip:'IP/GS' }[pitcherStat];
+  const statKey  = { k:'k9',  hits:'h9',  bb:'bb9',  ip:'ipPerStart' }[pitcherStat];
+  const statFn   = p => p[statKey] || '—';
+  const statColor = p => {
     const v = parseFloat(statFn(p));
-    if (pitcherStat === 'k')    return v >= 9 ? 'rate-good' : v >= 7 ? 'rate-mid' : 'rate-low';
-    if (pitcherStat === 'hits') return v <= 7 ? 'rate-good' : v <= 9 ? 'rate-mid' : 'rate-low';
-    if (pitcherStat === 'bb')   return v <= 2 ? 'rate-good' : v <= 3.5 ? 'rate-mid' : 'rate-low';
+    if (pitcherStat === 'k')    return v >= 9   ? 'rate-good' : v >= 7   ? 'rate-mid' : 'rate-low';
+    if (pitcherStat === 'hits') return v <= 7   ? 'rate-good' : v <= 9   ? 'rate-mid' : 'rate-low';
+    if (pitcherStat === 'bb')   return v <= 2   ? 'rate-good' : v <= 3.5 ? 'rate-mid' : 'rate-low';
     if (pitcherStat === 'ip')   return v >= 6.5 ? 'rate-good' : v >= 5.5 ? 'rate-mid' : 'rate-low';
     return '';
   };
 
+  const sc = col => pitcherSortCol===col ? 'sort-'+pitcherSortDir : '';
   const thead = `<thead><tr>
-    <th>#</th><th>Pitcher</th><th>Streak</th>
-    <th>GS</th><th>ERA</th><th>WHIP</th><th>BAA</th>
-    <th>${statCol}</th><th>K/9</th><th>H/9</th><th>BB/9</th><th>IP/Start</th>
+    <th>#</th><th>Pitcher</th><th onclick="togglePitcherSort('streak')" class="${sc('streak')}">Streak</th>
+    <th onclick="togglePitcherSort('gs')"  class="${sc('gs')}">GS</th>
+    <th onclick="togglePitcherSort('era')" class="${sc('era')}">ERA</th>
+    <th onclick="togglePitcherSort('whip')" class="${sc('whip')}">WHIP</th>
+    <th onclick="togglePitcherSort('baa')" class="${sc('baa')}">BAA</th>
+    <th onclick="togglePitcherSort('${statKey}')" class="${sc(statKey)}">${statCol}</th>
+    <th onclick="togglePitcherSort('k9')"  class="${sc('k9')}">K/9</th>
+    <th onclick="togglePitcherSort('h9')"  class="${sc('h9')}">H/9</th>
+    <th onclick="togglePitcherSort('bb9')" class="${sc('bb9')}">BB/9</th>
+    <th onclick="togglePitcherSort('ipPerStart')" class="${sc('ipPerStart')}">IP/GS</th>
     <th>Last 10</th>
   </tr></thead>`;
 
@@ -2247,12 +2386,8 @@ function renderPitchers() {
     const sv  = type === 'hot' ? p.pHot : p.pCold;
     const pct = Math.round(sv/maxVal*100);
     const log10 = (p[logKey]||[]).slice(-10);
-    const dots = log10.map(v => {
-      const hit = v >= N;
-      return `<div class="gl-dot ${hit?'hit':'no'}" title="${v}"></div>`;
-    }).join('');
+    const dots  = log10.map(v => `<div class="gl-dot ${v >= N ? 'hit':'no'}" title="${v}"></div>`).join('');
     const initials = p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-    const sc = statColor(p);
     return `<tr style="cursor:pointer" onclick="openPitcherModal(${p.id})">
       <td>${i+1}</td>
       <td><div class="player-cell">
@@ -2264,31 +2399,34 @@ function renderPitchers() {
         <div class="streak-bar-wrap"><div class="streak-bar ${type}" style="width:${pct}%"></div></div>
       </div></td>
       <td class="mono">${p.gs}</td>
-      <td class="mono">${p.era}</td>
-      <td class="mono">${p.whip}</td>
-      <td class="mono">${p.baa}</td>
-      <td class="mono ${sc}">${statFn(p)}</td>
-      <td class="mono">${p.k9}</td>
-      <td class="mono">${p.h9}</td>
-      <td class="mono">${p.bb9}</td>
-      <td class="mono">${p.ipPerStart}</td>
+      <td class="mono">${p.era}</td><td class="mono">${p.whip}</td><td class="mono">${p.baa}</td>
+      <td class="mono ${statColor(p)}">${statFn(p)}</td>
+      <td class="mono">${p.k9}</td><td class="mono">${p.h9}</td>
+      <td class="mono">${p.bb9}</td><td class="mono">${p.ipPerStart}</td>
       <td><div class="gl-dots">${dots}</div></td>
     </tr>`;
   }).join('');
 
+  const showHot  = pitcherMode !== 'cold';
+  const showCold = pitcherMode !== 'hot';
+
   content.innerHTML = `
+  ${showHot ? `
   <div class="section-header">
     <div class="section-title hot">🔥 ${cfg.hotLabel}: ${N}+/Start</div>
     <div class="streak-meta">Consecutive starts with ${N}+ ${cfg.label.toLowerCase()}</div>
     <div class="count-badge">${hotData.length} pitchers</div>
   </div>
   <div class="table-wrap"><table>${thead}<tbody>${buildPRows(hotData,'hot',hotMax)}</tbody></table></div>
-  <div class="section-header" style="margin-top:24px">
+  ` : ''}
+  ${showCold ? `
+  <div class="section-header" style="${showHot?'margin-top:24px':''}">
     <div class="section-title cold">🧊 ${cfg.coldLabel}: Under ${N}/Start</div>
     <div class="streak-meta">Consecutive starts without reaching ${N}+ ${cfg.label.toLowerCase()}</div>
     <div class="count-badge">${coldData.length} pitchers</div>
   </div>
-  <div class="table-wrap"><table>${thead}<tbody>${buildPRows(coldData,'cold',coldMax)}</tbody></table></div>`;
+  <div class="table-wrap"><table>${thead}<tbody>${buildPRows(coldData,'cold',coldMax)}</tbody></table></div>
+  ` : ''}`;
 }
 
 // ─── PITCHER MODAL ────────────────────────────────────────

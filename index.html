@@ -1187,6 +1187,8 @@ async function fetchPlayerStreaks(id, playerMap, season) {
     p.raw_hr   = rawHR.slice(-20);
     p.raw_rbi  = rawRBI.slice(-20);
     p.raw_k    = rawK.slice(-20);
+    p.raw_ab   = gameAB.slice(-20);  // per-game AB for PA-based threshold streaks
+    p.raw_pa   = gamePA.slice(-20);  // per-game PA for walks
 
     // PA-based streaks: sum AB/PA going backward until the streak breaks
     // Hits/HR/RBI/K use AB as unit (walks don't count against hit streaks)
@@ -2039,35 +2041,46 @@ function renderThresholds() {
 
   const players = masterPlayers.filter(p => p.ab >= threshMinAB);
 
-  // Calc streaks from raw per-game counts
-  function calcRawHot(rawLog, n) {
-    let c = 0;
-    for (let i = rawLog.length-1; i >= 0; i--) {
-      if (rawLog[i] >= n) c++; else break;
+  // PA-based streak calc for thresholds
+  // raw_ab and raw_pa are stored per game in fetchPlayerStreaks
+  function calcThreshHotPA(rawStat, rawAB, n) {
+    let pa = 0, games = 0;
+    for (let i = rawStat.length-1; i >= 0; i--) {
+      if (rawStat[i] >= n) { pa += (rawAB[i] || 0); games++; }
+      else break;
     }
-    return c;
+    return { pa, games };
   }
-  function calcRawCold(rawLog, n) {
-    let c = 0;
-    for (let i = rawLog.length-1; i >= 0; i--) {
-      if (rawLog[i] < n) c++; else break;
+  function calcThreshColdPA(rawStat, rawAB, n) {
+    let pa = 0, games = 0;
+    for (let i = rawStat.length-1; i >= 0; i--) {
+      if ((rawAB[i] || 0) > 0 && rawStat[i] < n) { pa += rawAB[i]; games++; }
+      else if ((rawAB[i] || 0) === 0) continue; // skip no-AB games
+      else break;
     }
-    return c;
+    return { pa, games };
   }
 
   const withStreaks = players.map(p => {
-    const raw = p[cfg.rawKey] || [];
-    // For threshold=1 with no raw data, fall back to 0/1 log
+    const raw   = p[cfg.rawKey] || [];
+    const rawAB = p.raw_ab || [];
     const useLog = raw.length === 0;
     const log01  = p[cfg.logKey] || [];
-    const hot  = useLog ? calcHot(log01)        : calcRawHot(raw, N);
-    const cold = useLog ? calcCold(log01)       : calcRawCold(raw, N);
-    // Build last-10 dots using raw counts
+    let hot, cold, hotG, coldG;
+    if (useLog) {
+      hot  = calcHot(log01);  hotG  = hot;
+      cold = calcCold(log01); coldG = cold;
+    } else {
+      const h = calcThreshHotPA(raw, rawAB, N);
+      const c = calcThreshColdPA(raw, rawAB, N);
+      hot  = h.pa;  hotG  = h.games;
+      cold = c.pa;  coldG = c.games;
+    }
     const dots10 = (raw.length ? raw : log01).slice(-10).map(v => {
       const hit = raw.length ? v >= N : v >= 1;
       return `<div class="gl-dot ${hit?'hit':'no'}" title="${v}"></div>`;
     }).join('');
-    return { ...p, tHot: hot, tCold: cold, dots10 };
+    return { ...p, tHot: hot, tCold: cold, tHotG: hotG, tColdG: coldG, dots10 };
   });
 
   const hotData  = withStreaks.filter(p => p.tHot  >= 1).sort((a,b) => b.tHot  - a.tHot);
@@ -2087,10 +2100,10 @@ function renderThresholds() {
   };
 
   const tsc = col => threshSortCol===col ? 'sort-'+threshSortDir : '';
+  const unit = threshStat === 'k' ? 'AB' : 'AB'; // all use AB for now (walks not in thresh tab)
   if (threshSortCol !== 'streak') {
     const sf = (a,b) => threshSortDir==='desc' ? (b[threshSortCol]||0)-(a[threshSortCol]||0) : (a[threshSortCol]||0)-(b[threshSortCol]||0);
     withStreaks.sort(sf);
-    // re-derive hotData/coldData after sort
   }
   const hotDataSorted  = threshSortCol === 'streak'
     ? withStreaks.filter(p => p.tHot  >= 1).sort((a,b) => b.tHot  - a.tHot)
@@ -2103,7 +2116,8 @@ function renderThresholds() {
 
   const thead = `<thead><tr>
     <th>#</th><th>Player</th>
-    <th onclick="toggleThreshSort('streak')" class="${tsc('streak')}">Streak</th>
+    <th onclick="toggleThreshSort('streak')" class="${tsc('streak')}">AB Streak</th>
+    <th style="color:var(--muted)">G</th>
     <th onclick="toggleThreshSort('ab')"  class="${tsc('ab')}">AB</th>
     <th onclick="toggleThreshSort('pa')"  class="${tsc('pa')}">PA</th>
     <th onclick="toggleThreshSort('h')"   class="${tsc('h')}">H</th>
@@ -2115,8 +2129,9 @@ function renderThresholds() {
   </tr></thead>`;
 
   const buildRows = (data, type, maxVal) => data.map((p, i) => {
-    const sv = type === 'hot' ? p.tHot : p.tCold;
-    const pct = Math.round(sv/maxVal*100);
+    const sv   = type === 'hot' ? p.tHot  : p.tCold;
+    const gv   = type === 'hot' ? p.tHotG : p.tColdG;
+    const pct  = Math.round(sv/maxVal*100);
     const initials = p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
     return `<tr style="cursor:pointer" onclick="openPlayerModal(${p.id})">
       <td>${i+1}</td>
@@ -2125,9 +2140,13 @@ function renderThresholds() {
         <div><div class="player-name">${p.name}</div><div class="player-team">${p.team}</div></div>
       </div></td>
       <td><div class="streak-cell">
-        <div class="streak-num ${type}">${sv}</div>
+        <div>
+          <div class="streak-num ${type}">${sv}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);text-align:right;margin-top:1px">AB</div>
+        </div>
         <div class="streak-bar-wrap"><div class="streak-bar ${type}" style="width:${pct}%"></div></div>
       </div></td>
+      <td class="mono" style="color:var(--muted);font-size:10px">${gv}G</td>
       <td class="mono">${p.ab}</td><td class="mono">${p.pa}</td>
       <td class="mono">${p.h}</td><td class="mono">${p.hr}</td><td class="mono">${p.rbi}</td>
       <td class="mono">${p.k}</td><td class="mono ${rateClass(p)}">${rateVal(p)}</td>
@@ -2142,7 +2161,7 @@ function renderThresholds() {
   ${showTHot ? `
   <div class="section-header">
     <div class="section-title hot">🔥 ${N}+ ${cfg.label} — ${cfg.hotLabel}</div>
-    <div class="streak-meta">Consecutive games with ${N}+ ${cfg.label.toLowerCase()}</div>
+    <div class="streak-meta">Consecutive AB with ${N}+ ${cfg.label.toLowerCase()}</div>
     <div class="count-badge">${hotDataSorted.length} players</div>
   </div>
   <div class="table-wrap"><table>${thead}<tbody>${buildRows(hotDataSorted,'hot',hotMax2)}</tbody></table></div>
@@ -2150,7 +2169,7 @@ function renderThresholds() {
   ${showTCold ? `
   <div class="section-header" style="${showTHot?'margin-top:24px':''}">
     <div class="section-title cold">🧊 ${N}+ ${cfg.label} — ${cfg.coldLabel}</div>
-    <div class="streak-meta">Consecutive games without ${N}+ ${cfg.label.toLowerCase()}</div>
+    <div class="streak-meta">Consecutive AB without ${N}+ ${cfg.label.toLowerCase()}</div>
     <div class="count-badge">${coldDataSorted.length} players</div>
   </div>
   <div class="table-wrap"><table>${thead}<tbody>${buildRows(coldDataSorted,'cold',coldMax2)}</tbody></table></div>

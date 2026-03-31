@@ -861,6 +861,7 @@
     <div class="stat-tab active" data-stat="hits"  onclick="setStat('hits')"><span class="tab-icon">🏏</span><span class="tab-label">Hits</span></div>
     <div class="stat-tab" data-stat="hr"    onclick="setStat('hr')"><span class="tab-icon">💣</span><span class="tab-label">HR</span></div>
     <div class="stat-tab" data-stat="rbi"   onclick="setStat('rbi')"><span class="tab-icon">📍</span><span class="tab-label">RBI</span></div>
+    <div class="stat-tab" data-stat="tb"    onclick="setStat('tb')"><span class="tab-icon">⚡</span><span class="tab-label">TB</span></div>
     <div class="stat-tab" data-stat="walks" onclick="setStat('walks')"><span class="tab-icon">👣</span><span class="tab-label">BB</span></div>
     <div class="stat-tab" data-stat="k"     onclick="setStat('k')"><span class="tab-icon">💨</span><span class="tab-label">K</span></div>
   </nav>
@@ -885,6 +886,7 @@
       <div class="pill active-all" data-tstat="hits"  onclick="setThreshStat('hits')">Hits</div>
       <div class="pill" data-tstat="hr"    onclick="setThreshStat('hr')">HR</div>
       <div class="pill" data-tstat="rbi"   onclick="setThreshStat('rbi')">RBI</div>
+      <div class="pill" data-tstat="tb"    onclick="setThreshStat('tb')">Total Bases</div>
       <div class="pill" data-tstat="k"     onclick="setThreshStat('k')">Strikeouts</div>
     </div>
     <div class="sep"></div>
@@ -976,15 +978,16 @@ let liveGameIds   = [];
 let refreshTimer  = null;
 
 // map stat tab key → streak/log key suffix
-const STAT_KEY = { hits:'hits', hr:'hr', rbi:'rbi', walks:'bb', k:'k' };
+const STAT_KEY = { hits:'hits', hr:'hr', rbi:'rbi', walks:'bb', k:'k', tb:'tb' };
 
 // ─── STAT CONFIG ──────────────────────────────────────────
 const STAT_CONFIG = {
-  hits:  { label:'Hits',         hotLabel:'Hit Streak',       coldLabel:'Hitless Streak',    hotDesc:'Consecutive AB with a hit',           coldDesc:'Consecutive AB without a hit',         rateKey:'hPerGame',   rateLabel:'H/G',    thresholds:[.70,1.00], unit:'AB' },
-  hr:    { label:'Home Runs',    hotLabel:'HR Streak',        coldLabel:'HR Drought',         hotDesc:'Consecutive AB with a HR',             coldDesc:'Consecutive AB without a HR',           rateKey:'hrPerGame',  rateLabel:'HR/G',   thresholds:[.04,.09],  unit:'AB' },
-  rbi:   { label:'RBI',          hotLabel:'RBI Streak',       coldLabel:'RBI Drought',        hotDesc:'Consecutive AB with an RBI',           coldDesc:'Consecutive AB without an RBI',         rateKey:'rbiPerGame', rateLabel:'RBI/G',  thresholds:[.35,.65],  unit:'AB' },
-  walks: { label:'Walks (BB)',   hotLabel:'Walk Streak',      coldLabel:'Walk Drought',       hotDesc:'Consecutive PA with a walk',           coldDesc:'Consecutive PA without a walk',         rateKey:'bb_pa',      rateLabel:'BB/PA',  thresholds:[.07,.13],  unit:'PA' },
-  k:     { label:'Strikeouts',   hotLabel:'K Streak',         coldLabel:'K-Free Streak',      hotDesc:'Consecutive AB with a strikeout',      coldDesc:'Consecutive AB without a strikeout',    rateKey:'kPerGame',   rateLabel:'K/G',    thresholds:[.55,.85],  unit:'AB' },
+  hits:  { label:'Hits',         hotLabel:'Hit Streak',       coldLabel:'Hitless Streak',    hotDesc:'Consecutive games with a hit',         coldDesc:'Consecutive games without a hit',      rateKey:'hPerGame',   rateLabel:'H/G',    thresholds:[.70,1.00] },
+  hr:    { label:'Home Runs',    hotLabel:'HR Streak',        coldLabel:'HR Drought',         hotDesc:'Consecutive games with a HR',           coldDesc:'Consecutive games without a HR',        rateKey:'hrPerGame',  rateLabel:'HR/G',   thresholds:[.04,.09]  },
+  rbi:   { label:'RBI',          hotLabel:'RBI Streak',       coldLabel:'RBI Drought',        hotDesc:'Consecutive games with an RBI',         coldDesc:'Consecutive games without an RBI',      rateKey:'rbiPerGame', rateLabel:'RBI/G',  thresholds:[.35,.65]  },
+  walks: { label:'Walks (BB)',   hotLabel:'Walk Streak',      coldLabel:'Walk Drought',       hotDesc:'Consecutive games with a walk',         coldDesc:'Consecutive games without a walk',      rateKey:'bb_pa',      rateLabel:'BB/PA',  thresholds:[.07,.13]  },
+  k:     { label:'Strikeouts',   hotLabel:'K Streak',         coldLabel:'K-Free Streak',      hotDesc:'Consecutive games with a strikeout',    coldDesc:'Consecutive games without a strikeout', rateKey:'kPerGame',   rateLabel:'K/G',    thresholds:[.55,.85]  },
+  tb:    { label:'Total Bases',  hotLabel:'TB Streak',        coldLabel:'TB Drought',         hotDesc:'Consecutive games with a total base',   coldDesc:'Consecutive games without a total base',rateKey:'tbPerGame',  rateLabel:'TB/G',   thresholds:[1.2,2.0]  },
 };
 
 // ─── FETCH HELPERS ────────────────────────────────────────
@@ -1059,11 +1062,16 @@ async function loadData() {
       const totalK   = (st.strikeOuts || 0)+ (pr ? (pr.strikeOuts || 0): 0);
       const totalAB  = (st.atBats || 0)    + (pr ? (pr.atBats || 0)    : 0);
       const totalG   = (st.gamesPlayed || 0) + (pr ? (pr.gamesPlayed || 0) : 0);
+      // Total Bases = 1B + 2*2B + 3*3B + 4*HR  (hits + doubles + 2*triples + 3*HR)
+      const curTB  = (st.hits||0) + (st.doubles||0) + (st.triples||0)*2 + (st.homeRuns||0)*3;
+      const prTB   = pr ? ((pr.hits||0) + (pr.doubles||0) + (pr.triples||0)*2 + (pr.homeRuns||0)*3) : 0;
+      const totalTB = curTB + prTB;
       const blendedAvg  = totalAB > 0 ? (totalH  / totalAB) : 0;
       const hPerGame    = totalG  > 0 ? (totalH  / totalG)  : 0;
       const hrPerGame   = totalG  > 0 ? (totalHR / totalG)  : 0;
       const rbiPerGame  = totalG  > 0 ? (totalRBI/ totalG)  : 0;
       const kPerGame    = totalG  > 0 ? (totalK  / totalG)  : 0;
+      const tbPerGame   = totalG  > 0 ? (totalTB / totalG)  : 0;
 
       playerMap[id] = {
         id,
@@ -1071,23 +1079,18 @@ async function loadData() {
         team: getTeamAbb(s.team),
         teamId: s.team?.id || null,
         ab:   st.atBats || 0,
-        pa:   st.plateAppearances || 0,
         h:    st.hits || 0,
         r:    st.runs || 0,
         hr:   st.homeRuns || 0,
         rbi:  st.rbi || 0,
         bb:   st.baseOnBalls || 0,
         k:    st.strikeOuts || 0,
+        tb:   curTB,
         avg:  st.avg || '.000',
         blendedAvg,
-        hPerGame, hrPerGame, rbiPerGame, kPerGame,
+        hPerGame, hrPerGame, rbiPerGame, kPerGame, tbPerGame,
         priorAvg: pr ? pr.avg : null,
-        // All rates per plate appearance (consistent denominator)
-        h_pa:  st.plateAppearances ? st.hits/st.plateAppearances        : 0,
-        hr_pa: st.plateAppearances ? st.homeRuns/st.plateAppearances    : 0,
-        rbi_pa:st.plateAppearances ? st.rbi/st.plateAppearances         : 0,
         bb_pa: st.plateAppearances ? st.baseOnBalls/st.plateAppearances : 0,
-        k_pa:  st.plateAppearances ? st.strikeOuts/st.plateAppearances  : 0,
         // matchup — filled after schedule fetch
         matchup: teamPitcherMap[s.team?.id] || null,
         // streaks filled in next
@@ -1096,8 +1099,9 @@ async function loadData() {
         streak_rbi_hot:0,  streak_rbi_cold:0,
         streak_bb_hot:0,   streak_bb_cold:0,
         streak_k_hot:0,    streak_k_cold:0,
-        log_hits:[], log_hr:[], log_rbi:[], log_bb:[], log_k:[],
-        raw_hits:[], raw_hr:[], raw_rbi:[], raw_k:[],
+        streak_tb_hot:0,   streak_tb_cold:0,
+        log_hits:[], log_hr:[], log_rbi:[], log_bb:[], log_k:[], log_tb:[],
+        raw_hits:[], raw_hr:[], raw_rbi:[], raw_k:[], raw_tb:[],
       };
     });
 
@@ -1152,30 +1156,23 @@ async function fetchPlayerStreaks(id, playerMap, season) {
     if (!splits.length || !playerMap[id]) return;
 
     const p = playerMap[id];
-    // Per-game logs for 0/1 (used for dot display) and raw counts (threshold tab)
-    const logH=[], logHR=[], logRBI=[], logBB=[], logK=[];
-    const rawH=[], rawHR=[], rawRBI=[], rawK=[];
-    // Per-game AB/PA for PA-based streak calc
-    const gameAB=[], gamePA=[], gameH=[], gameHR=[], gameRBI=[], gameBB=[], gameK=[];
+    const logH=[], logHR=[], logRBI=[], logBB=[], logK=[], logTB=[];
+    const rawH=[], rawHR=[], rawRBI=[], rawK=[], rawTB=[];
 
     for (const s of splits) {
       const st = s.stat;
-      const ab = st.atBats || 0;
-      const pa = st.plateAppearances || 0;
-      const h  = st.hits || 0;
-      const hr = st.homeRuns || 0;
-      const rbi= st.rbi || 0;
-      const bb = st.baseOnBalls || 0;
-      const k  = st.strikeOuts || 0;
-      logH.push(h  > 0 ? 1 : 0);
-      logHR.push(hr > 0 ? 1 : 0);
-      logRBI.push(rbi>0 ? 1 : 0);
-      logBB.push(bb > 0 ? 1 : 0);
-      logK.push(k  > 0 ? 1 : 0);
-      rawH.push(h); rawHR.push(hr); rawRBI.push(rbi); rawK.push(k);
-      gameAB.push(ab); gamePA.push(pa);
-      gameH.push(h); gameHR.push(hr); gameRBI.push(rbi);
-      gameBB.push(bb); gameK.push(k);
+      const tb = (st.hits||0) + (st.doubles||0) + (st.triples||0)*2 + (st.homeRuns||0)*3;
+      logH.push(st.hits > 0 ? 1 : 0);
+      logHR.push(st.homeRuns > 0 ? 1 : 0);
+      logRBI.push(st.rbi > 0 ? 1 : 0);
+      logBB.push(st.baseOnBalls > 0 ? 1 : 0);
+      logK.push(st.strikeOuts > 0 ? 1 : 0);
+      logTB.push(tb > 0 ? 1 : 0);
+      rawH.push(st.hits || 0);
+      rawHR.push(st.homeRuns || 0);
+      rawRBI.push(st.rbi || 0);
+      rawK.push(st.strikeOuts || 0);
+      rawTB.push(tb);
     }
 
     p.log_hits = logH.slice(-20);
@@ -1183,74 +1180,25 @@ async function fetchPlayerStreaks(id, playerMap, season) {
     p.log_rbi  = logRBI.slice(-20);
     p.log_bb   = logBB.slice(-20);
     p.log_k    = logK.slice(-20);
+    p.log_tb   = logTB.slice(-20);
     p.raw_hits = rawH.slice(-20);
     p.raw_hr   = rawHR.slice(-20);
     p.raw_rbi  = rawRBI.slice(-20);
     p.raw_k    = rawK.slice(-20);
-    p.raw_ab   = gameAB.slice(-20);  // per-game AB for PA-based threshold streaks
-    p.raw_pa   = gamePA.slice(-20);  // per-game PA for walks
+    p.raw_tb   = rawTB.slice(-20);
 
-    // PA-based streaks: sum AB/PA going backward until the streak breaks
-    // Hits/HR/RBI/K use AB as unit (walks don't count against hit streaks)
-    // Walks use PA as unit
-    function calcPAHot(statLog, abLog) {
-      // consecutive PA (AB) where stat > 0
-      let pa = 0, games = 0;
-      for (let i = statLog.length-1; i >= 0; i--) {
-        if (statLog[i] > 0) { pa += abLog[i]; games++; }
-        else break;
-      }
-      return { pa, games };
-    }
-    function calcPACold(statLog, abLog) {
-      // consecutive PA (AB) where stat = 0 AND player had AB (excluding pure walk/HBP games)
-      let pa = 0, games = 0;
-      for (let i = statLog.length-1; i >= 0; i--) {
-        if (abLog[i] > 0 && statLog[i] === 0) { pa += abLog[i]; games++; }
-        else if (abLog[i] === 0) continue; // skip games with no AB (walk/HBP only)
-        else break;
-      }
-      return { pa, games };
-    }
-    function calcPAHotBB(bbLog, paLog) {
-      let pa = 0, games = 0;
-      for (let i = bbLog.length-1; i >= 0; i--) {
-        if (bbLog[i] > 0) { pa += paLog[i]; games++; }
-        else break;
-      }
-      return { pa, games };
-    }
-    function calcPAColdBB(bbLog, paLog) {
-      let pa = 0, games = 0;
-      for (let i = bbLog.length-1; i >= 0; i--) {
-        if (bbLog[i] === 0) { pa += paLog[i]; games++; }
-        else break;
-      }
-      return { pa, games };
-    }
-
-    const hHot   = calcPAHot(gameH,   gameAB);
-    const hCold  = calcPACold(gameH,  gameAB);
-    const hrHot  = calcPAHot(gameHR,  gameAB);
-    const hrCold = calcPACold(gameHR, gameAB);
-    const rbiHot  = calcPAHot(gameRBI,  gameAB);
-    const rbiCold = calcPACold(gameRBI, gameAB);
-    const bbHot  = calcPAHotBB(gameBB,  gamePA);
-    const bbCold = calcPAColdBB(gameBB, gamePA);
-    const kHot   = calcPAHot(gameK,   gameAB);
-    const kCold  = calcPACold(gameK,  gameAB);
-
-    // Store both PA count and game count
-    p.streak_hits_hot   = hHot.pa;   p.streak_hits_hot_g   = hHot.games;
-    p.streak_hits_cold  = hCold.pa;  p.streak_hits_cold_g  = hCold.games;
-    p.streak_hr_hot     = hrHot.pa;  p.streak_hr_hot_g     = hrHot.games;
-    p.streak_hr_cold    = hrCold.pa; p.streak_hr_cold_g    = hrCold.games;
-    p.streak_rbi_hot    = rbiHot.pa; p.streak_rbi_hot_g    = rbiHot.games;
-    p.streak_rbi_cold   = rbiCold.pa;p.streak_rbi_cold_g   = rbiCold.games;
-    p.streak_bb_hot     = bbHot.pa;  p.streak_bb_hot_g     = bbHot.games;
-    p.streak_bb_cold    = bbCold.pa; p.streak_bb_cold_g    = bbCold.games;
-    p.streak_k_hot      = kHot.pa;   p.streak_k_hot_g      = kHot.games;
-    p.streak_k_cold     = kCold.pa;  p.streak_k_cold_g     = kCold.games;
+    p.streak_hits_hot  = calcHot(logH);
+    p.streak_hits_cold = calcCold(logH);
+    p.streak_hr_hot    = calcHot(logHR);
+    p.streak_hr_cold   = calcCold(logHR);
+    p.streak_rbi_hot   = calcHot(logRBI);
+    p.streak_rbi_cold  = calcCold(logRBI);
+    p.streak_bb_hot    = calcHot(logBB);
+    p.streak_bb_cold   = calcCold(logBB);
+    p.streak_k_hot     = calcHot(logK);
+    p.streak_k_cold    = calcCold(logK);
+    p.streak_tb_hot    = calcHot(logTB);
+    p.streak_tb_cold   = calcCold(logTB);
 
   } catch(e) { /* silently skip */ }
 }
@@ -1416,17 +1364,16 @@ function renderContent() {
     <thead><tr>
       <th>#</th>
       <th>Player</th>
-      <th onclick="toggleSort('streak')" class="${sortCol==='streak'?'sort-'+sortDir:''}">${cfg.unit} ${streakLabel}</th>
-      <th style="color:var(--muted)">G</th>
+      <th onclick="toggleSort('streak')" class="${sortCol==='streak'?'sort-'+sortDir:''}">${streakLabel}</th>
       <th onclick="toggleSort('ab')"  class="${sortCol==='ab' ?'sort-'+sortDir:''}">AB</th>
-      <th onclick="toggleSort('pa')"  class="${sortCol==='pa' ?'sort-'+sortDir:''}">PA</th>
       <th onclick="toggleSort('h')"   class="${sortCol==='h'  ?'sort-'+sortDir:''}">H</th>
       <th onclick="toggleSort('hr')"  class="${sortCol==='hr' ?'sort-'+sortDir:''}">HR</th>
       <th onclick="toggleSort('rbi')" class="${sortCol==='rbi'?'sort-'+sortDir:''}">RBI</th>
       <th onclick="toggleSort('bb')"  class="${sortCol==='bb' ?'sort-'+sortDir:''}">BB</th>
       <th onclick="toggleSort('k')"   class="${sortCol==='k'  ?'sort-'+sortDir:''}">K</th>
+      <th onclick="toggleSort('tb')"  class="${sortCol==='tb' ?'sort-'+sortDir:''}">TB</th>
       <th onclick="toggleSort('${cfg.rateKey}')" class="${sortCol===cfg.rateKey?'sort-'+sortDir:''}">${cfg.rateLabel}</th>
-      <th onclick="toggleSort('h_pa')" class="${sortCol==='h_pa'?'sort-'+sortDir:''}">AVG <span style="font-size:8px;color:var(--muted)">'26</span></th>
+      <th onclick="toggleSort('avg')" class="${sortCol==='avg'?'sort-'+sortDir:''}">AVG</th>
       <th>Last 10G</th>
       <th>Today's Matchup</th>
     </tr></thead>`;
@@ -1485,16 +1432,6 @@ function buildRow(p, rank, streakVal, type, pct, rateVal, cfg, logKey) {
     `<div class="gl-dot ${v===1?'hit':'no'}"></div>`
   ).join('');
 
-  // Get the games count for this streak
-  const sk = logKey.replace('log_','');
-  const isHot = type === 'hot';
-  const gKey = isHot ? `streak_${sk}_hot_g` : `streak_${sk}_cold_g`;
-  // Map log key back to stat key for games lookup
-  const statKeyMap = { log_hits:'hits', log_hr:'hr', log_rbi:'rbi', log_bb:'bb', log_k:'k' };
-  const statName = statKeyMap[logKey] || sk;
-  const gamesKey = isHot ? `streak_${statName}_hot_g` : `streak_${statName}_cold_g`;
-  const gamesVal = p[gamesKey] || 0;
-
   return `<tr style="cursor:pointer" onclick="openPlayerModal(${p.id})">
     <td>${rank}</td>
     <td>
@@ -1511,23 +1448,19 @@ function buildRow(p, rank, streakVal, type, pct, rateVal, cfg, logKey) {
     </td>
     <td>
       <div class="streak-cell">
-        <div>
-          <div class="streak-num ${type}">${streakVal}</div>
-          <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);text-align:right;margin-top:1px">${cfg.unit}</div>
-        </div>
+        <div class="streak-num ${type}">${streakVal}</div>
         <div class="streak-bar-wrap">
           <div class="streak-bar ${type}" style="width:${pct}%"></div>
         </div>
       </div>
     </td>
-    <td class="mono" style="color:var(--muted);font-size:10px">${gamesVal}G</td>
     <td class="mono">${p.ab}</td>
-    <td class="mono">${p.pa}</td>
     <td class="mono">${p.h}</td>
     <td class="mono">${p.hr}</td>
     <td class="mono">${p.rbi}</td>
     <td class="mono">${p.bb}</td>
     <td class="mono">${p.k}</td>
+    <td class="mono">${p.tb||0}</td>
     <td class="mono ${rateClass}">${rateStr}</td>
     <td class="avg">${p.avg}</td>
     <td><div class="gl-dots">${logDots}</div></td>
@@ -1995,10 +1928,11 @@ let threshVal  = 1;
 let threshMinAB = 5;
 
 const THRESH_CONFIG = {
-  hits: { label:'Hits',       vals:[1,2,3,4,5],    rawKey:'raw_hits', logKey:'log_hits', hotLabel:'Hit Streak',   coldLabel:'Hitless Streak', rateKey:'hPerGame',  rateLabel:'H/G'   },
-  hr:   { label:'Home Runs',  vals:[1,2,3],         rawKey:'raw_hr',   logKey:'log_hr',   hotLabel:'HR Streak',    coldLabel:'HR Drought',     rateKey:'hrPerGame', rateLabel:'HR/G'  },
-  rbi:  { label:'RBI',        vals:[1,2,3,4,5],     rawKey:'raw_rbi',  logKey:'log_rbi',  hotLabel:'RBI Streak',   coldLabel:'RBI Drought',    rateKey:'rbiPerGame',rateLabel:'RBI/G' },
-  k:    { label:'Strikeouts', vals:[1,2,3,4,5,6,7,8,9,10], rawKey:'raw_k', logKey:'log_k', hotLabel:'K Streak', coldLabel:'K-Free Streak',  rateKey:'kPerGame',  rateLabel:'K/G'   },
+  hits: { label:'Hits',        vals:[1,2,3,4,5],          rawKey:'raw_hits', logKey:'log_hits', hotLabel:'Hit Streak',   coldLabel:'Hitless Streak', rateKey:'hPerGame',  rateLabel:'H/G'  },
+  hr:   { label:'Home Runs',   vals:[1,2,3],               rawKey:'raw_hr',   logKey:'log_hr',   hotLabel:'HR Streak',    coldLabel:'HR Drought',     rateKey:'hrPerGame', rateLabel:'HR/G' },
+  rbi:  { label:'RBI',         vals:[1,2,3,4,5],           rawKey:'raw_rbi',  logKey:'log_rbi',  hotLabel:'RBI Streak',   coldLabel:'RBI Drought',    rateKey:'rbiPerGame',rateLabel:'RBI/G'},
+  tb:   { label:'Total Bases', vals:[1,2,3,4,5,6,7,8,9],  rawKey:'raw_tb',   logKey:'log_tb',   hotLabel:'TB Streak',    coldLabel:'TB Drought',     rateKey:'tbPerGame', rateLabel:'TB/G' },
+  k:    { label:'Strikeouts',  vals:[1,2,3,4,5,6,7,8,9,10],rawKey:'raw_k',  logKey:'log_k',    hotLabel:'K Streak',     coldLabel:'K-Free Streak',  rateKey:'kPerGame',  rateLabel:'K/G'  },
 };
 
 function initThresholds() {
@@ -2041,46 +1975,32 @@ function renderThresholds() {
 
   const players = masterPlayers.filter(p => p.ab >= threshMinAB);
 
-  // PA-based streak calc for thresholds
-  // raw_ab and raw_pa are stored per game in fetchPlayerStreaks
-  function calcThreshHotPA(rawStat, rawAB, n) {
-    let pa = 0, games = 0;
-    for (let i = rawStat.length-1; i >= 0; i--) {
-      if (rawStat[i] >= n) { pa += (rawAB[i] || 0); games++; }
-      else break;
+  function calcRawHot(rawLog, n) {
+    let c = 0;
+    for (let i = rawLog.length-1; i >= 0; i--) {
+      if (rawLog[i] >= n) c++; else break;
     }
-    return { pa, games };
+    return c;
   }
-  function calcThreshColdPA(rawStat, rawAB, n) {
-    let pa = 0, games = 0;
-    for (let i = rawStat.length-1; i >= 0; i--) {
-      if ((rawAB[i] || 0) > 0 && rawStat[i] < n) { pa += rawAB[i]; games++; }
-      else if ((rawAB[i] || 0) === 0) continue; // skip no-AB games
-      else break;
+  function calcRawCold(rawLog, n) {
+    let c = 0;
+    for (let i = rawLog.length-1; i >= 0; i--) {
+      if (rawLog[i] < n) c++; else break;
     }
-    return { pa, games };
+    return c;
   }
 
   const withStreaks = players.map(p => {
     const raw   = p[cfg.rawKey] || [];
-    const rawAB = p.raw_ab || [];
     const useLog = raw.length === 0;
     const log01  = p[cfg.logKey] || [];
-    let hot, cold, hotG, coldG;
-    if (useLog) {
-      hot  = calcHot(log01);  hotG  = hot;
-      cold = calcCold(log01); coldG = cold;
-    } else {
-      const h = calcThreshHotPA(raw, rawAB, N);
-      const c = calcThreshColdPA(raw, rawAB, N);
-      hot  = h.pa;  hotG  = h.games;
-      cold = c.pa;  coldG = c.games;
-    }
+    const hot  = useLog ? calcHot(log01)  : calcRawHot(raw, N);
+    const cold = useLog ? calcCold(log01) : calcRawCold(raw, N);
     const dots10 = (raw.length ? raw : log01).slice(-10).map(v => {
       const hit = raw.length ? v >= N : v >= 1;
       return `<div class="gl-dot ${hit?'hit':'no'}" title="${v}"></div>`;
     }).join('');
-    return { ...p, tHot: hot, tCold: cold, tHotG: hotG, tColdG: coldG, dots10 };
+    return { ...p, tHot: hot, tCold: cold, dots10 };
   });
 
   const hotData  = withStreaks.filter(p => p.tHot  >= 1).sort((a,b) => b.tHot  - a.tHot);
@@ -2088,23 +2008,7 @@ function renderThresholds() {
   const hotMax   = hotData[0]?.tHot   || 1;
   const coldMax  = coldData[0]?.tCold || 1;
 
-  const rateVal  = p => {
-    const v = p[cfg.rateKey] || 0;
-    return v > 0 ? v.toFixed(2) : '—';
-  };
-  const rateClass = p => {
-    const v = p[cfg.rateKey] || 0;
-    const thresholds = { hPerGame:[0.7,1.0], hrPerGame:[0.05,0.12], rbiPerGame:[0.35,0.65], kPerGame:[0.55,0.85] };
-    const [lo,hi] = thresholds[cfg.rateKey] || [0,0];
-    return v >= hi ? 'rate-good' : v >= lo ? 'rate-mid' : 'rate-low';
-  };
-
   const tsc = col => threshSortCol===col ? 'sort-'+threshSortDir : '';
-  const unit = threshStat === 'k' ? 'AB' : 'AB'; // all use AB for now (walks not in thresh tab)
-  if (threshSortCol !== 'streak') {
-    const sf = (a,b) => threshSortDir==='desc' ? (b[threshSortCol]||0)-(a[threshSortCol]||0) : (a[threshSortCol]||0)-(b[threshSortCol]||0);
-    withStreaks.sort(sf);
-  }
   const hotDataSorted  = threshSortCol === 'streak'
     ? withStreaks.filter(p => p.tHot  >= 1).sort((a,b) => b.tHot  - a.tHot)
     : withStreaks.filter(p => p.tHot  >= 1).sort((a,b) => threshSortDir==='desc' ? (b[threshSortCol]||0)-(a[threshSortCol]||0) : (a[threshSortCol]||0)-(b[threshSortCol]||0));
@@ -2116,22 +2020,22 @@ function renderThresholds() {
 
   const thead = `<thead><tr>
     <th>#</th><th>Player</th>
-    <th onclick="toggleThreshSort('streak')" class="${tsc('streak')}">AB Streak</th>
-    <th style="color:var(--muted)">G</th>
+    <th onclick="toggleThreshSort('streak')" class="${tsc('streak')}">Streak</th>
     <th onclick="toggleThreshSort('ab')"  class="${tsc('ab')}">AB</th>
-    <th onclick="toggleThreshSort('pa')"  class="${tsc('pa')}">PA</th>
     <th onclick="toggleThreshSort('h')"   class="${tsc('h')}">H</th>
     <th onclick="toggleThreshSort('hr')"  class="${tsc('hr')}">HR</th>
     <th onclick="toggleThreshSort('rbi')" class="${tsc('rbi')}">RBI</th>
+    <th onclick="toggleThreshSort('tb')"  class="${tsc('tb')}">TB</th>
     <th onclick="toggleThreshSort('k')"   class="${tsc('k')}">K</th>
     <th onclick="toggleThreshSort('${cfg.rateKey}')" class="${tsc(cfg.rateKey)}">${cfg.rateLabel}</th>
     <th>Last 10G</th>
   </tr></thead>`;
 
   const buildRows = (data, type, maxVal) => data.map((p, i) => {
-    const sv   = type === 'hot' ? p.tHot  : p.tCold;
-    const gv   = type === 'hot' ? p.tHotG : p.tColdG;
-    const pct  = Math.round(sv/maxVal*100);
+    const sv  = type === 'hot' ? p.tHot : p.tCold;
+    const pct = Math.round(sv/maxVal*100);
+    const rv  = p[cfg.rateKey] || 0;
+    const rc  = rv >= cfg.thresholds?.[1] ? 'rate-good' : rv >= cfg.thresholds?.[0] ? 'rate-mid' : 'rate-low';
     const initials = p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
     return `<tr style="cursor:pointer" onclick="openPlayerModal(${p.id})">
       <td>${i+1}</td>
@@ -2140,16 +2044,13 @@ function renderThresholds() {
         <div><div class="player-name">${p.name}</div><div class="player-team">${p.team}</div></div>
       </div></td>
       <td><div class="streak-cell">
-        <div>
-          <div class="streak-num ${type}">${sv}</div>
-          <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);text-align:right;margin-top:1px">AB</div>
-        </div>
+        <div class="streak-num ${type}">${sv}</div>
         <div class="streak-bar-wrap"><div class="streak-bar ${type}" style="width:${pct}%"></div></div>
       </div></td>
-      <td class="mono" style="color:var(--muted);font-size:10px">${gv}G</td>
-      <td class="mono">${p.ab}</td><td class="mono">${p.pa}</td>
+      <td class="mono">${p.ab}</td>
       <td class="mono">${p.h}</td><td class="mono">${p.hr}</td><td class="mono">${p.rbi}</td>
-      <td class="mono">${p.k}</td><td class="mono ${rateClass(p)}">${rateVal(p)}</td>
+      <td class="mono">${p.tb||0}</td><td class="mono">${p.k}</td>
+      <td class="mono ${rc}">${rv > 0 ? rv.toFixed(2) : '—'}</td>
       <td><div class="gl-dots">${p.dots10}</div></td>
     </tr>`;
   }).join('');

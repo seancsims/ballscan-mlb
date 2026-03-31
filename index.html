@@ -434,6 +434,10 @@
   .gl-dot.no  { background: var(--border2); }
   .gl-dot.partial { background: var(--gold); }
 
+  .streak-score { display:flex; flex-direction:column; align-items:center; min-width:32px; }
+  .score-bar-wrap { width: 28px; height: 3px; background: var(--border2); border-radius: 2px; margin-top: 2px; overflow:hidden; }
+  .score-bar { height: 100%; border-radius: 2px; }
+
   /* ─── RESPONSIVE ─────────────────────────── */
   @media (max-width: 700px) {
     header { padding: 12px 14px; }
@@ -1323,6 +1327,60 @@ function buildMatchupCell(p) {
 }
 
 
+// ─── STREAK STRENGTH SCORE ────────────────────────────────
+// 0–100 score combining streak length, production rate, and recency trend
+// Called per-render so it's always relative to current dataset and stat
+function calcStreakScore(p, type, streakVal, cfg, logKey, maxStreak) {
+  // 1. Streak component (0–50): how long is the streak vs longest in dataset
+  const streakPct = maxStreak > 0 ? Math.min(streakVal / maxStreak, 1) : 0;
+  const streakScore = Math.round(streakPct * 50);
+
+  // 2. Production component (0–30): rate vs stat-specific league benchmarks
+  const rate = p[cfg.rateKey] || 0;
+  // Benchmarks: [average, elite] per stat
+  const benchmarks = {
+    hPerGame:   [0.75, 1.10],
+    hrPerGame:  [0.05, 0.12],
+    rbiPerGame: [0.40, 0.70],
+    bb_pa:      [0.08, 0.14],
+    kPerGame:   [0.55, 0.85],
+    tbPerGame:  [1.30, 2.00],
+  };
+  const [avg, elite] = benchmarks[cfg.rateKey] || [1, 2];
+  const prodScore = rate >= elite ? 30 : rate >= avg ? Math.round(((rate - avg) / (elite - avg)) * 15 + 15) : Math.round((rate / avg) * 15);
+
+  // 3. Recency component (0–20): last 5G hit rate vs last 20G
+  const log = p[logKey] || [];
+  const last5  = log.slice(-5);
+  const last20 = log.slice(-20);
+  const rate5  = last5.length  > 0 ? last5.filter(v=>v===1).length  / last5.length  : 0;
+  const rate20 = last20.length > 0 ? last20.filter(v=>v===1).length / last20.length : 0;
+  // Hot = recent rate > historical rate (trending up)
+  const trending = rate5 - rate20; // -1 to +1
+  const recencyScore = type === 'hot'
+    ? Math.round(Math.min(Math.max((trending + 0.5) / 1.0, 0), 1) * 20)
+    : Math.round(Math.min(Math.max((-trending + 0.5) / 1.0, 0), 1) * 20);
+
+  const total = Math.min(streakScore + prodScore + recencyScore, 100);
+
+  // Color + label
+  let color, icon;
+  if (total >= 80) { color = '#fbbf24'; icon = '⚡'; }       // electric gold
+  else if (total >= 60) { color = 'var(--green)'; icon = '●'; } // green
+  else if (total >= 40) { color = 'var(--muted2)'; icon = '●'; }// grey
+  else { color = 'var(--cold)'; icon = '●'; }                   // cold blue
+
+  return { total, streakScore, prodScore, recencyScore, color, icon };
+}
+
+function formatStreakScore(score) {
+  const { total, color, icon } = score;
+  return `<div class="streak-score" style="color:${color}" title="Score ${total}/100 · Streak:${score.streakScore} Production:${score.prodScore} Trend:${score.recencyScore}">
+    <span style="font-family:'Bebas Neue',sans-serif;font-size:18px;line-height:1">${total}</span>
+    <span style="font-size:9px;font-family:'DM Mono',monospace;display:block;text-align:center;margin-top:1px;letter-spacing:.5px">SCR</span>
+  </div>`;
+}
+
 function renderContent() {
   const cfg = STAT_CONFIG[currentStat];
   const sk  = STAT_KEY[currentStat];
@@ -1333,15 +1391,12 @@ function renderContent() {
   const q = document.getElementById('search-input').value.toLowerCase().trim();
   const isSearching = q.length > 0;
 
-  // When searching: ignore mode, show all matches regardless of streak
-  // When not searching: respect mode filter, only show players with active streaks
   const filtered = applyFiltersRaw();
   const minStreak = parseInt(document.getElementById('min-streak')?.value || '1', 10) || 1;
 
   let hotData, coldData;
 
   if (isSearching) {
-    // Show all matching players in both tables, even if streak = 0
     hotData  = [...filtered].sort((a,b) => b[statStreakHotKey]  - a[statStreakHotKey]);
     coldData = [...filtered].sort((a,b) => b[statStreakColdKey] - a[statStreakColdKey]);
   } else {
@@ -1349,15 +1404,25 @@ function renderContent() {
     coldData = filtered.filter(p => p[statStreakColdKey] >= minStreak).sort((a,b) => b[statStreakColdKey] - a[statStreakColdKey]);
   }
 
-  // Column sort override
-  if (sortCol !== 'streak') {
-    const sortFn = (a,b) => sortDir === 'desc' ? b[sortCol]-a[sortCol] : a[sortCol]-b[sortCol];
-    hotData.sort(sortFn);
-    coldData.sort(sortFn);
-  }
-
   const hotMax  = hotData[0]?.[statStreakHotKey]  || 1;
   const coldMax = coldData[0]?.[statStreakColdKey] || 1;
+
+  // Pre-compute streak scores for sort support
+  hotData  = hotData.map(p  => ({ ...p, _score: calcStreakScore(p, 'hot',  p[statStreakHotKey],  cfg, logKey, hotMax).total  }));
+  coldData = coldData.map(p => ({ ...p, _score: calcStreakScore(p, 'cold', p[statStreakColdKey], cfg, logKey, coldMax).total }));
+
+  // Re-sort if score column selected
+  if (sortCol === '_score') {
+    const sf = (a,b) => sortDir === 'desc' ? b._score - a._score : a._score - b._score;
+    hotData.sort(sf); coldData.sort(sf);
+  } else if (sortCol !== 'streak') {
+    const sortFn = (a,b) => {
+      const av = sortCol==='avg' ? parseFloat(a[sortCol]||0) : (a[sortCol]||0);
+      const bv = sortCol==='avg' ? parseFloat(b[sortCol]||0) : (b[sortCol]||0);
+      return sortDir === 'desc' ? bv-av : av-bv;
+    };
+    hotData.sort(sortFn); coldData.sort(sortFn);
+  }
 
   // shared thead builder
   const thead = (streakLabel) => `
@@ -1365,6 +1430,7 @@ function renderContent() {
       <th>#</th>
       <th>Player</th>
       <th onclick="toggleSort('streak')" class="${sortCol==='streak'?'sort-'+sortDir:''}">${streakLabel}</th>
+      <th onclick="toggleSort('_score')" class="${sortCol==='_score'?'sort-'+sortDir:''}" title="Streak Strength Score (0–100)">SCR</th>
       <th onclick="toggleSort('ab')"  class="${sortCol==='ab' ?'sort-'+sortDir:''}">AB</th>
       <th onclick="toggleSort('h')"   class="${sortCol==='h'  ?'sort-'+sortDir:''}">H</th>
       <th onclick="toggleSort('hr')"  class="${sortCol==='hr' ?'sort-'+sortDir:''}">HR</th>
@@ -1392,10 +1458,11 @@ function renderContent() {
       ${thead('Streak')}
       <tbody>`;
     hotData.forEach((p, i) => {
-      const sv  = p[statStreakHotKey];
-      const rv  = p[cfg.rateKey];
-      const pct = Math.round((sv/hotMax)*100);
-      html += buildRow(p, i+1, sv, 'hot', pct, rv, cfg, logKey);
+      const sv    = p[statStreakHotKey];
+      const rv    = p[cfg.rateKey];
+      const pct   = Math.round((sv/hotMax)*100);
+      const score = calcStreakScore(p, 'hot', sv, cfg, logKey, hotMax);
+      html += buildRow(p, i+1, sv, 'hot', pct, rv, cfg, logKey, score);
     });
     html += `</tbody></table></div>`;
   }
@@ -1412,10 +1479,11 @@ function renderContent() {
       ${thead('Drought')}
       <tbody>`;
     coldData.forEach((p, i) => {
-      const sv  = p[statStreakColdKey];
-      const rv  = p[cfg.rateKey];
-      const pct = Math.round((sv/coldMax)*100);
-      html += buildRow(p, i+1, sv, 'cold', pct, rv, cfg, logKey);
+      const sv    = p[statStreakColdKey];
+      const rv    = p[cfg.rateKey];
+      const pct   = Math.round((sv/coldMax)*100);
+      const score = calcStreakScore(p, 'cold', sv, cfg, logKey, coldMax);
+      html += buildRow(p, i+1, sv, 'cold', pct, rv, cfg, logKey, score);
     });
     html += `</tbody></table></div>`;
   }
@@ -1424,13 +1492,14 @@ function renderContent() {
   document.getElementById('content-area').innerHTML = html;
 }
 
-function buildRow(p, rank, streakVal, type, pct, rateVal, cfg, logKey) {
+function buildRow(p, rank, streakVal, type, pct, rateVal, cfg, logKey, score) {
   const initials = p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   const rateClass = rateVal >= cfg.thresholds[1] ? 'rate-good' : rateVal >= cfg.thresholds[0] ? 'rate-mid' : 'rate-low';
   const rateStr   = typeof rateVal === 'number' && rateVal > 0 ? rateVal.toFixed(2) : '—';
   const logDots = (p[logKey]||[]).slice(-10).map(v =>
     `<div class="gl-dot ${v===1?'hit':'no'}"></div>`
   ).join('');
+  const scrHtml = score ? formatStreakScore(score) : '—';
 
   return `<tr style="cursor:pointer" onclick="openPlayerModal(${p.id})">
     <td>${rank}</td>
@@ -1454,6 +1523,7 @@ function buildRow(p, rank, streakVal, type, pct, rateVal, cfg, logKey) {
         </div>
       </div>
     </td>
+    <td style="text-align:center">${scrHtml}</td>
     <td class="mono">${p.ab}</td>
     <td class="mono">${p.h}</td>
     <td class="mono">${p.hr}</td>
@@ -1901,6 +1971,29 @@ async function openPlayerModal(playerId) {
       ${snap}
       <div class="modal-section-title">ACTIVE STREAKS</div>
       <div class="streak-pills">${streakPills}</div>
+
+      <div class="modal-section-title">STREAK STRENGTH</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:4px">${
+        Object.entries(STAT_KEY).map(([statName, sk]) => {
+          const hotStreak  = player?.[`streak_${sk}_hot`]  || 0;
+          const coldStreak = player?.[`streak_${sk}_cold`] || 0;
+          const cfg2 = STAT_CONFIG[statName];
+          if (!cfg2) return '';
+          const log2  = player?.[`log_${sk}`] || [];
+          const type2 = hotStreak > 0 ? 'hot' : 'cold';
+          const sv2   = hotStreak > 0 ? hotStreak : coldStreak;
+          if (sv2 === 0) return '';
+          const score2 = calcStreakScore(player, type2, sv2, cfg2, `log_${sk}`, Math.max(hotStreak, coldStreak, 1));
+          const bar = `<div style="height:3px;background:var(--border2);border-radius:2px;margin-top:4px;overflow:hidden"><div style="width:${score2.total}%;height:100%;background:${score2.color};border-radius:2px"></div></div>`;
+          return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center">
+            <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:3px">${cfg2.label.toUpperCase()}</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${score2.color};line-height:1">${score2.total}</div>
+            <div style="font-family:'DM Mono',monospace;font-size:8px;color:var(--muted)">S:${score2.streakScore} P:${score2.prodScore} T:${score2.recencyScore}</div>
+            ${bar}
+          </div>`;
+        }).join('')
+      }</div>
+      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:12px">S = Streak · P = Production · T = Trend · Max 100</div>
       <div class="modal-section-title">LAST ${last5.length} GAMES</div>
       ${last5.length ? `
       <table class="gl-table">

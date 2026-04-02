@@ -2,7 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="StreakWatchers">
+<meta name="description" content="MLB Streak Intelligence — live hit streaks, pitcher matchups, and daily analytics">
+<link rel="manifest" href="data:application/json,{&quot;name&quot;:&quot;StreakWatchers MLB&quot;,&quot;short_name&quot;:&quot;StreakWatch&quot;,&quot;start_url&quot;:&quot;/&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;%230b0e14&quot;,&quot;theme_color&quot;:&quot;%230b0e14&quot;,&quot;icons&quot;:[{&quot;src&quot;:&quot;https://img.mlbstatic.com/mlb-photos/image/upload/v1/assets/images/league-logos/1.svg&quot;,&quot;sizes&quot;:&quot;any&quot;,&quot;type&quot;:&quot;image/svg+xml&quot;}]}">
 <title>StreakWatchers — MLB</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -440,10 +447,114 @@
 
   /* ─── RESPONSIVE ─────────────────────────── */
   @media (max-width: 700px) {
-    header { padding: 12px 14px; }
-    .controls { padding: 10px 14px; }
-    .stat-nav { width: 52px; }
-    .content { padding: 14px; }
+    /* Header */
+    header { padding: 10px 14px; gap: 10px; }
+    .logo { font-size: 24px; }
+    .logo-sub { font-size: 8px; letter-spacing: 2px; }
+    #last-update { display: none; }
+    #refresh-btn { padding: 5px 10px; font-size: 11px; }
+
+    /* Live bar */
+    #live-games-bar { padding: 6px 14px; }
+
+    /* Page tabs — scrollable horizontal row */
+    .page-tabs { padding: 0 8px; overflow-x: auto; scrollbar-width: none; gap: 0; }
+    .page-tabs::-webkit-scrollbar { display: none; }
+    .page-tab { padding: 8px 12px; font-size: 10px; white-space: nowrap; }
+
+    /* Controls — wrapping pills */
+    .controls { padding: 10px 14px; gap: 8px; }
+    .ctrl-label { font-size: 9px; }
+    .pill { padding: 4px 10px; font-size: 10px; }
+    .sep { display: none; }
+    .search-wrap { margin-left: 0; width: 100%; }
+    .search-wrap input { width: 100%; }
+
+    /* Main layout — stack nav below content on mobile */
+    .main { flex-direction: column; }
+    .stat-nav {
+      width: 100%;
+      min-height: unset;
+      flex-direction: row;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+      padding: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .stat-nav::-webkit-scrollbar { display: none; }
+    .stat-tab {
+      flex-direction: row;
+      gap: 6px;
+      padding: 10px 16px;
+      border-left: none;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .stat-tab.active {
+      border-left: none;
+      border-bottom-color: var(--accent);
+      background: rgba(79,127,255,.06);
+    }
+    .stat-tab .tab-icon { font-size: 15px; }
+    .stat-tab .tab-label { font-size: 10px; }
+
+    /* Content */
+    .content { padding: 12px 14px; }
+
+    /* Tables — horizontal scroll */
+    .table-wrap { border-radius: 8px; }
+    table { min-width: 520px; font-size: 11px; }
+    th { padding: 7px 8px; font-size: 8px; }
+    td { padding: 7px 8px; font-size: 11px; }
+    .player-name { font-size: 12px; }
+    .player-team { font-size: 8px; }
+    .player-avatar { width: 26px; height: 26px; }
+    .streak-num { font-size: 18px; min-width: 28px; }
+    .streak-bar-wrap { min-width: 40px; max-width: 60px; }
+
+    /* Section headers */
+    .section-header { gap: 8px; margin-bottom: 10px; }
+    .section-title { font-size: 18px; }
+    .streak-meta { display: none; }
+
+    /* Games grid — single column */
+    .games-grid { grid-template-columns: 1fr; gap: 10px; }
+    .game-team-abb { font-size: 22px; }
+    .game-score { font-size: 28px; }
+
+    /* Game detail — stack teams */
+    .teams-split { grid-template-columns: 1fr; gap: 12px; }
+    .game-detail-header { flex-wrap: wrap; gap: 8px; }
+
+    /* Modal */
+    .modal { border-radius: 10px; }
+    .modal-header { padding: 14px 16px 12px; gap: 10px; }
+    .modal-name { font-size: 15px; }
+    .modal-body { padding: 14px 16px; }
+    .stat-snapshot { grid-template-columns: repeat(3,1fr); }
+
+    /* Thresholds + Pitchers page */
+    #thresholds-page, #pitchers-page { padding: 12px 14px; }
+    #thresholds-controls, #pitchers-controls { gap: 8px; }
+
+    /* Pill groups wrap nicely */
+    .pill-group { flex-wrap: wrap; }
+
+    /* Min streak input */
+    #min-streak { width: 44px; }
+
+    /* Matchup cell — hide on very small screens to save space */
+    .matchup-hide-mobile { display: none; }
+  }
+
+  /* Extra small — sub 400px */
+  @media (max-width: 400px) {
+    .logo { font-size: 20px; }
+    .stat-snapshot { grid-template-columns: repeat(2,1fr); }
+    .game-stat-tabs { gap: 3px; }
+    .game-stat-tabs .pill { padding: 4px 8px; font-size: 10px; }
   }
 
   /* ─── PAGE TABS ──────────────────────────── */
@@ -1156,10 +1267,27 @@ async function fetchStreaksInBatches(ids, playerMap, season) {
 async function fetchPlayerStreaks(id, playerMap, season) {
   try {
     const resp = await fetchJSON(`${API}/people/${id}/stats?stats=gameLog&group=hitting&season=${season}&gameType=R`);
-    const splits = resp.stats?.[0]?.splits || [];
+    let splits = resp.stats?.[0]?.splits || [];
     if (!splits.length || !playerMap[id]) return;
 
     const p = playerMap[id];
+
+    // If this player's team has a game that is currently LIVE or PREVIEW (not yet final),
+    // strip today's entry from the log before calculating streaks.
+    // This prevents a 0-for-2 in the 4th inning from breaking a hit streak —
+    // the streak should only update once the game is officially Final.
+    const etToday = new Date(Date.now() - 4 * 3600000).toISOString().slice(0,10);
+    const teamStatus = teamPitcherMap[p.teamId]?.gameStatus; // 'Live' | 'Preview' | 'Final'
+    const gameIsLiveOrPending = teamStatus === 'Live' || teamStatus === 'Preview';
+
+    if (gameIsLiveOrPending && splits.length > 0) {
+      const lastEntry = splits[splits.length - 1];
+      // Game log dates are YYYY-MM-DD; strip if it matches today
+      if (lastEntry.date === etToday) {
+        splits = splits.slice(0, -1);
+      }
+    }
+
     const logH=[], logHR=[], logRBI=[], logBB=[], logK=[], logTB=[];
     const rawH=[], rawHR=[], rawRBI=[], rawK=[], rawTB=[];
 
@@ -1379,7 +1507,7 @@ function renderContent() {
       <th onclick="toggleSort('${cfg.rateKey}')" class="${sortCol===cfg.rateKey?'sort-'+sortDir:''}">${cfg.rateLabel}</th>
       <th onclick="toggleSort('avg')" class="${sortCol==='avg'?'sort-'+sortDir:''}">AVG</th>
       <th>Last 10G</th>
-      <th>Today's Matchup</th>
+      <th class="matchup-hide-mobile">Today's Matchup</th>
     </tr></thead>`;
 
   let html = '';
@@ -1467,7 +1595,7 @@ function buildRow(p, rank, streakVal, type, pct, rateVal, cfg, logKey) {
     <td class="mono ${rateClass}">${rateStr}</td>
     <td class="avg">${p.avg}</td>
     <td><div class="gl-dots">${logDots}</div></td>
-    <td>${buildMatchupCell(p)}</td>
+    <td class="matchup-hide-mobile">${buildMatchupCell(p)}</td>
   </tr>`;
 }
 

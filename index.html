@@ -942,6 +942,12 @@
 
 <!-- CONTROLS (players page only) -->
 <div class="controls" id="players-controls">
+  <span class="ctrl-label">Hit Mode</span>
+  <div class="pill-group">
+    <div class="pill active-all" id="sm-games" onclick="setStreakMode('games')">Games</div>
+    <div class="pill" id="sm-ab" onclick="setStreakMode('ab')">AB</div>
+  </div>
+  <div class="sep"></div>
   <span class="ctrl-label">Mode</span>
   <div class="pill-group" id="mode-pills">
     <div class="pill active-all" data-mode="all" onclick="setMode('all')">All</div>
@@ -1122,6 +1128,7 @@ let currentMode   = 'all';
 let currentMinAB  = 10;
 let sortCol       = 'streak';
 let sortDir       = 'desc';
+let streakMode    = 'games'; // 'games' | 'ab'
 let liveGameIds   = [];
 let refreshTimer  = null;
 
@@ -1334,25 +1341,28 @@ async function fetchPlayerStreaks(id, playerMap, season) {
     if (!splits.length || !playerMap[id]) return;
 
     const p = playerMap[id];
-
-    // If this player's team has a game that is currently LIVE or PREVIEW (not yet final),
-    // strip today's entry from the log before calculating streaks.
-    // This prevents a 0-for-2 in the 4th inning from breaking a hit streak —
-    // the streak should only update once the game is officially Final.
     const etToday = new Date(Date.now() - 4 * 3600000).toISOString().slice(0,10);
-    const teamStatus = teamPitcherMap[p.teamId]?.gameStatus; // 'Live' | 'Preview' | 'Final'
+    const teamStatus = teamPitcherMap[p.teamId]?.gameStatus;
     const gameIsLiveOrPending = teamStatus === 'Live' || teamStatus === 'Preview';
 
+    // Per-stat live game logic:
+    // If game is live/pending AND today's entry exists:
+    //   - For each stat: if player ACHIEVED it today (value > 0) → include it (extend streak)
+    //   - If NOT yet achieved (value = 0) → exclude it (freeze streak at yesterday)
+    // This means Lindor's walk streak extends the moment he draws a walk,
+    // but his hit streak stays frozen if he's 0-for-2 with a walk so far.
+    let todaySplit = null;
     if (gameIsLiveOrPending && splits.length > 0) {
-      const lastEntry = splits[splits.length - 1];
-      // Game log dates are YYYY-MM-DD; strip if it matches today
-      if (lastEntry.date === etToday) {
-        splits = splits.slice(0, -1);
+      const last = splits[splits.length - 1];
+      if (last.date === etToday) {
+        todaySplit = last.stat; // store separately for per-stat inclusion
+        splits = splits.slice(0, -1); // remove from main log — we'll add per-stat below
       }
     }
 
     const logH=[], logHR=[], logRBI=[], logBB=[], logK=[], logTB=[];
     const rawH=[], rawHR=[], rawRBI=[], rawK=[], rawTB=[];
+    const gameAB=[], gamePH=[]; // per-game AB and hits for AB-mode streak
 
     for (const s of splits) {
       const st = s.stat;
@@ -1368,6 +1378,27 @@ async function fetchPlayerStreaks(id, playerMap, season) {
       rawRBI.push(st.rbi || 0);
       rawK.push(st.strikeOuts || 0);
       rawTB.push(tb);
+      gameAB.push(st.atBats || 0);
+      gamePH.push(st.hits || 0);
+    }
+
+    // Add today's entry PER STAT based on achievement
+    if (todaySplit) {
+      const td = todaySplit;
+      const tb = (td.hits||0) + (td.doubles||0) + (td.triples||0)*2 + (td.homeRuns||0)*3;
+      logH.push(td.hits > 0 ? 1 : 0);         // include if got a hit, else 0 (frozen)
+      logHR.push(td.homeRuns > 0 ? 1 : 0);
+      logRBI.push(td.rbi > 0 ? 1 : 0);
+      logBB.push(td.baseOnBalls > 0 ? 1 : 0);
+      logK.push(td.strikeOuts > 0 ? 1 : 0);
+      logTB.push(tb > 0 ? 1 : 0);
+      rawH.push(td.hits || 0);
+      rawHR.push(td.homeRuns || 0);
+      rawRBI.push(td.rbi || 0);
+      rawK.push(td.strikeOuts || 0);
+      rawTB.push(tb);
+      gameAB.push(td.atBats || 0);
+      gamePH.push(td.hits || 0);
     }
 
     p.log_hits = logH.slice(-20);
@@ -1381,7 +1412,10 @@ async function fetchPlayerStreaks(id, playerMap, season) {
     p.raw_rbi  = rawRBI.slice(-20);
     p.raw_k    = rawK.slice(-20);
     p.raw_tb   = rawTB.slice(-20);
+    p.game_ab  = gameAB.slice(-20); // per-game AB for AB-mode
+    p.game_h   = gamePH.slice(-20); // per-game hits for AB-mode
 
+    // Game-based streaks (existing)
     p.streak_hits_hot  = calcHot(logH);
     p.streak_hits_cold = calcCold(logH);
     p.streak_hr_hot    = calcHot(logHR);
@@ -1394,6 +1428,30 @@ async function fetchPlayerStreaks(id, playerMap, season) {
     p.streak_k_cold    = calcCold(logK);
     p.streak_tb_hot    = calcHot(logTB);
     p.streak_tb_cold   = calcCold(logTB);
+
+    // AB-based hit streaks: consecutive ABs with a hit / without a hit
+    // Sum ABs going backward until streak breaks
+    let abHot = 0, abCold = 0;
+    // Hot: consecutive ABs ending in hits (walk-only games skipped)
+    let i = gamePH.length - 1;
+    while (i >= 0) {
+      const ab = gameAB[i] || 0;
+      const h  = gamePH[i] || 0;
+      if (ab === 0) { i--; continue; } // skip walk/HBP-only games
+      if (h > 0) { abHot += ab; i--; }
+      else break;
+    }
+    // Cold: consecutive ABs without a hit
+    i = gamePH.length - 1;
+    while (i >= 0) {
+      const ab = gameAB[i] || 0;
+      const h  = gamePH[i] || 0;
+      if (ab === 0) { i--; continue; }
+      if (h === 0) { abCold += ab; i--; }
+      else break;
+    }
+    p.streak_hits_hot_ab  = abHot;
+    p.streak_hits_cold_ab = abCold;
 
   } catch(e) { /* silently skip */ }
 }
@@ -1433,6 +1491,9 @@ async function fetchPitcherStats(ids, season, priorSeason) {
       const totalHR = (cs.homeRuns||0) + (ps.homeRuns||0);
       const totalBB = (cs.baseOnBalls||0) + (ps.baseOnBalls||0);
       const totalK  = (cs.strikeOuts||0) + (ps.strikeOuts||0);
+      const totalGO = (cs.groundOuts||0) + (ps.groundOuts||0);
+      const totalAO = (cs.airOuts||0)    + (ps.airOuts||0);
+      const totalPOut = totalK + totalGO + totalAO;
       const r = n => totalIP > 0 ? (n * 9 / totalIP).toFixed(2) : '—';
       pitcherStatsMap[id] = {
         era:  cs.era  || ps.era  || '—',
@@ -1444,6 +1505,14 @@ async function fetchPitcherStats(ids, season, priorSeason) {
         k9:   r(totalK),
         ip:   totalIP.toFixed(1),
         season: curIP > 10 ? season : priorSeason,
+        // Out breakdown for Outs page matchup column
+        pK:  totalK,
+        pGO: totalGO,
+        pAO: totalAO,
+        pTotal: totalPOut,
+        kPct:  totalPOut > 0 ? totalK  / totalPOut * 100 : 0,
+        goPct: totalPOut > 0 ? totalGO / totalPOut * 100 : 0,
+        aoPct: totalPOut > 0 ? totalAO / totalPOut * 100 : 0,
       };
     } catch(e) { /* skip */ }
   }));
@@ -1521,9 +1590,12 @@ function buildMatchupCell(p) {
 function renderContent() {
   const cfg = STAT_CONFIG[currentStat];
   const sk  = STAT_KEY[currentStat];
-  const statStreakHotKey  = `streak_${sk}_hot`;
-  const statStreakColdKey = `streak_${sk}_cold`;
+  // For hits tab: support AB mode toggle; all other stats use game mode
+  const useAB = streakMode === 'ab' && currentStat === 'hits';
+  const statStreakHotKey  = useAB ? 'streak_hits_hot_ab'  : `streak_${sk}_hot`;
+  const statStreakColdKey = useAB ? 'streak_hits_cold_ab' : `streak_${sk}_cold`;
   const logKey            = `log_${sk}`;
+  const streakUnit        = useAB ? 'AB' : 'G';
 
   const q = document.getElementById('search-input').value.toLowerCase().trim();
   const isSearching = q.length > 0;
@@ -1579,12 +1651,12 @@ function renderContent() {
   if (currentMode !== 'cold') {
     html += `
     <div class="section-header">
-      <div class="section-title hot">🔥 ${cfg.hotLabel}</div>
-      <div class="streak-meta">${cfg.hotDesc}</div>
+      <div class="section-title hot">🔥 ${cfg.hotLabel}${useAB?' <span style="font-size:13px;color:var(--muted2)">(AB)</span>':''}</div>
+      <div class="streak-meta">${useAB?'Consecutive at-bats with a hit':cfg.hotDesc}</div>
       <div class="count-badge">${hotData.length} players</div>
     </div>
     <div class="table-wrap"><table>
-      ${thead('Streak')}
+      ${thead(streakUnit+' Streak')}
       <tbody>`;
     hotData.forEach((p, i) => {
       const sv    = p[statStreakHotKey];
@@ -1599,12 +1671,12 @@ function renderContent() {
   if (currentMode !== 'hot') {
     html += `
     <div class="section-header">
-      <div class="section-title cold">🧊 ${cfg.coldLabel}</div>
-      <div class="streak-meta">${cfg.coldDesc}</div>
+      <div class="section-title cold">🧊 ${cfg.coldLabel}${useAB?' <span style="font-size:13px;color:var(--muted2)">(AB)</span>':''}</div>
+      <div class="streak-meta">${useAB?'Consecutive at-bats without a hit':cfg.coldDesc}</div>
       <div class="count-badge">${coldData.length} players</div>
     </div>
     <div class="table-wrap"><table>
-      ${thead('Drought')}
+      ${thead(streakUnit+' Drought')}
       <tbody>`;
     coldData.forEach((p, i) => {
       const sv    = p[statStreakColdKey];
@@ -1674,6 +1746,14 @@ function applyFiltersRaw() {
 function applyFilters() { renderContent(); }
 
 // ─── CONTROLS ─────────────────────────────────────────────
+function setStreakMode(mode) {
+  streakMode = mode;
+  document.getElementById('sm-games').className = 'pill' + (mode==='games'?' active-all':'');
+  document.getElementById('sm-ab').className    = 'pill' + (mode==='ab'?' active-all':'');
+  sortCol = 'streak'; sortDir = 'desc'; // reset sort when switching mode
+  renderContent();
+}
+
 function setMode(mode) {
   currentMode = mode;
   document.querySelectorAll('[data-mode]').forEach(el => {
@@ -2309,6 +2389,39 @@ let pitcherStartersOnly = true;
 let pitcherTodayOnly   = false;
 let allPitchers        = [];
 let pitcherLogsLoaded  = false;
+const nextStartMap     = {}; // pitcherId -> { date, oppTeam, oppPitcherName }
+
+async function fetchNextStarts(season) {
+  try {
+    const today = new Date(Date.now() - 4*3600000).toISOString().slice(0,10);
+    const end   = new Date(Date.now() - 4*3600000 + 10*86400000).toISOString().slice(0,10);
+    const sched = await fetchJSON(
+      `${API}/schedule?sportId=1&startDate=${today}&endDate=${end}&gameType=R&hydrate=probablePitcher`
+    );
+    for (const dateObj of (sched.dates || [])) {
+      for (const g of (dateObj.games || [])) {
+        const awayPP = g.teams.away.probablePitcher;
+        const homePP = g.teams.home.probablePitcher;
+        const awayAbb = getTeamAbb(g.teams.away.team);
+        const homeAbb = getTeamAbb(g.teams.home.team);
+        if (awayPP && !nextStartMap[awayPP.id]) {
+          nextStartMap[awayPP.id] = {
+            date: dateObj.date,
+            oppTeam: homeAbb,
+            oppPitcher: homePP?.fullName || null,
+          };
+        }
+        if (homePP && !nextStartMap[homePP.id]) {
+          nextStartMap[homePP.id] = {
+            date: dateObj.date,
+            oppTeam: awayAbb,
+            oppPitcher: awayPP?.fullName || null,
+          };
+        }
+      }
+    }
+  } catch(e) { /* skip */ }
+}
 
 const PITCHER_STAT_CONFIG = {
   k:    { label:'Strikeouts', vals:[3,4,5,6,7,8,9,10,12,15], hotDesc:'starts with N+ K',    coldDesc:'starts without N+ K',    hotLabel:'K Streak',   coldLabel:'K Drought'  },
@@ -2430,6 +2543,10 @@ async function loadPitcherData() {
 
     allPitchers = Object.values(pitMap).sort((a,b) => b.gs - a.gs);
     pitcherLogsLoaded = true;
+
+    // Fetch next 7 days of schedule to find each pitcher's next start
+    await fetchNextStarts(season);
+
     renderPitchers();
   } catch(e) {
     document.getElementById('pitchers-content').innerHTML =
@@ -2610,6 +2727,7 @@ function renderPitchers() {
     <th onclick="togglePitcherSort('bb9')" class="${sc('bb9')}">BB/9</th>
     <th onclick="togglePitcherSort('ipPerStart')" class="${sc('ipPerStart')}">IP/GS</th>
     <th>Last 10</th>
+    <th>Next Start</th>
   </tr></thead>`;
 
   const buildPRows = (data, type, maxVal) => data.slice(0,50).map((p,i) => {
@@ -2618,6 +2736,22 @@ function renderPitchers() {
     const log10 = (p[logKey]||[]).slice(-10);
     const dots  = log10.map(v => `<div class="gl-dot ${v >= N ? 'hit':'no'}" title="${v}"></div>`).join('');
     const initials = p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+
+    // Next start info
+    const ns = nextStartMap[p.id];
+    const today = new Date(Date.now() - 4*3600000).toISOString().slice(0,10);
+    let nextStartCell = `<span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted)">—</span>`;
+    if (ns) {
+      const isToday = ns.date === today;
+      const dateStr = isToday ? '<span style="color:var(--live)">TODAY</span>'
+        : `<span>${ns.date.slice(5)}</span>`;
+      const oppHtml = `<span style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:var(--text);margin-left:4px">vs ${ns.oppTeam}</span>`;
+      const pitHtml = ns.oppPitcher
+        ? `<div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);margin-top:1px">vs ${ns.oppPitcher.split(' ').pop()}</div>`
+        : '';
+      nextStartCell = `<div style="font-family:'DM Mono',monospace;font-size:10px">${dateStr}${oppHtml}${pitHtml}</div>`;
+    }
+
     return `<tr style="cursor:pointer" onclick="openPitcherModal(${p.id})">
       <td>${i+1}</td>
       <td><div class="player-cell">
@@ -2634,6 +2768,7 @@ function renderPitchers() {
       <td class="mono">${p.k9}</td><td class="mono">${p.h9}</td>
       <td class="mono">${p.bb9}</td><td class="mono">${p.ipPerStart}</td>
       <td><div class="gl-dots">${dots}</div></td>
+      <td>${nextStartCell}</td>
     </tr>`;
   }).join('');
 
@@ -2918,6 +3053,59 @@ function renderOuts() {
       </div>`;
     };
 
+    // Pitcher matchup column
+    const matchup = teamPitcherMap[p.teamId];
+    const pitcher = matchup?.pitcher;
+    const ps = pitcher ? pitcherStatsMap[pitcher.id] : null;
+
+    let pitcherCell = `<div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted)">Off today</div>`;
+
+    if (pitcher && ps && ps.pTotal > 0) {
+      const pitInit = pitcher.fullName.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+      const pitName = pitcher.fullName.split(' ').pop();
+
+      // Overlap flag logic: compare batter % vs pitcher %
+      // Flag bad matchup (red) if BOTH are high in same category (e.g. batter K% > 40 AND pitcher K% > 40)
+      // Flag favorable (green) if batter strong area vs pitcher weak area
+      const flags = [];
+      const THRESH = 38; // % threshold for "notable"
+
+      // K overlap: batter high K + pitcher high K = bad for batter
+      if (p.kPct >= THRESH && ps.kPct >= THRESH)
+        flags.push({ txt: `K vs K`, color: 'var(--hot)', tip: `Batter Ks ${p.kPct.toFixed(0)}% | Pitcher Ks ${ps.kPct.toFixed(0)}% of outs` });
+      // GO overlap: batter high GO + pitcher high GO = batter may struggle to drive ball
+      if (p.goPct >= THRESH && ps.goPct >= THRESH)
+        flags.push({ txt: `GB vs GB`, color: '#e08040', tip: `Batter grounds out ${p.goPct.toFixed(0)}% | Pitcher induces GBs ${ps.goPct.toFixed(0)}%` });
+      // Favorable: batter air ball hitter vs ground ball pitcher = batter advantage
+      if ((p.foPct + p.loPct) >= THRESH && ps.goPct >= THRESH)
+        flags.push({ txt: `Air vs GB`, color: 'var(--green)', tip: `Batter air ball ${(p.foPct+p.loPct).toFixed(0)}% | Pitcher GB ${ps.goPct.toFixed(0)}% — batter advantage` });
+
+      const flagHtml = flags.length
+        ? flags.map(f => `<span style="font-family:'DM Mono',monospace;font-size:8px;padding:2px 6px;border-radius:10px;background:${f.color}22;border:1px solid ${f.color};color:${f.color}" title="${f.tip}">${f.txt}</span>`).join(' ')
+        : '';
+
+      const pKBar  = `<div style="display:flex;align-items:center;gap:4px"><div style="width:50px;height:4px;background:var(--border2);border-radius:2px;overflow:hidden"><div style="width:${Math.min(100,ps.kPct)}%;height:100%;background:${barColor(ps.kPct,'k')};border-radius:2px"></div></div><span style="font-family:'DM Mono',monospace;font-size:9px;color:${barColor(ps.kPct,'k')}">${ps.kPct.toFixed(0)}%K</span></div>`;
+      const pGOBar = `<div style="display:flex;align-items:center;gap:4px"><div style="width:50px;height:4px;background:var(--border2);border-radius:2px;overflow:hidden"><div style="width:${Math.min(100,ps.goPct)}%;height:100%;background:${barColor(ps.goPct,'go')};border-radius:2px"></div></div><span style="font-family:'DM Mono',monospace;font-size:9px;color:${barColor(ps.goPct,'go')}">${ps.goPct.toFixed(0)}%GO</span></div>`;
+      const pAOBar = `<div style="display:flex;align-items:center;gap:4px"><div style="width:50px;height:4px;background:var(--border2);border-radius:2px;overflow:hidden"><div style="width:${Math.min(100,ps.aoPct)}%;height:100%;background:var(--cold);border-radius:2px"></div></div><span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--cold)">${ps.aoPct.toFixed(0)}%AO</span></div>`;
+
+      pitcherCell = `
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:160px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="width:20px;height:20px;border-radius:50%;background:var(--border2);overflow:hidden;flex-shrink:0">
+              <img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_60,q_auto:best/v1/people/${pitcher.id}/headshot/silo/current"
+                   style="width:100%;height:100%;object-fit:cover;border-radius:50%"
+                   onerror="this.style.display='none'" alt="">
+            </div>
+            <span style="font-weight:600;font-size:12px">${pitName}</span>
+            <span style="font-family:'DM Mono',monospace;font-size:9px;color:${pitchStatColor('era',ps.era)}">${ps.era} ERA</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:2px">${pKBar}${pGOBar}${pAOBar}</div>
+          ${flagHtml ? `<div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:2px">${flagHtml}</div>` : ''}
+        </div>`;
+    } else if (pitcher) {
+      pitcherCell = `<div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted)">${pitcher.fullName.split(' ').pop()}<br>No data</div>`;
+    }
+
     return `<tr style="cursor:pointer" onclick="openPlayerModal(${p.id})">
       <td>${i+1}</td>
       <td><div class="player-cell">
@@ -2931,6 +3119,7 @@ function renderOuts() {
       <td>${bar(p.foPct, 'fo')}</td>
       <td>${bar(p.loPct, 'lo')}</td>
       <td class="mono" style="color:var(--muted);font-size:10px">${p.oK}K / ${p.oGO}GO / ${p.oFO}FO / ${p.oLO}LO</td>
+      <td style="padding:8px 12px">${pitcherCell}</td>
     </tr>`;
   }).join('');
 
@@ -2954,6 +3143,7 @@ function renderOuts() {
       <th onclick="setOutsSort('fo')" class="${tsc('fo')}">FO%</th>
       <th onclick="setOutsSort('lo')" class="${tsc('lo')}">LO%</th>
       <th>Breakdown</th>
+      <th>Vs. Today's Pitcher</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;

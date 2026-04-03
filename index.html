@@ -874,8 +874,9 @@
     margin-top: 3px;
   }
 
-  /* game log table in modal */
-  .gl-table { width: 100%; border-collapse: collapse; }
+  /* game log table in modal — horizontally scrollable on mobile */
+  .gl-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .gl-table { width: 100%; border-collapse: collapse; min-width: 460px; }
   .gl-table th {
     font-family: 'DM Mono', monospace;
     font-size: 9px;
@@ -936,6 +937,7 @@
   <div class="page-tab" onclick="setPage('games')">📅 Games</div>
   <div class="page-tab" onclick="setPage('thresholds')">🎯 Thresholds</div>
   <div class="page-tab" onclick="setPage('pitchers')">⚡ Pitchers</div>
+  <div class="page-tab" onclick="setPage('outs')">📊 Outs</div>
 </div>
 
 <!-- CONTROLS (players page only) -->
@@ -1059,6 +1061,37 @@
   </div>
 </div>
 
+<!-- MAIN: OUTS PAGE -->
+<div id="outs-page" style="display:none;padding:20px 28px">
+  <div id="outs-controls" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+    <span class="ctrl-label">Sort By</span>
+    <div class="pill-group">
+      <div class="pill active-all" id="outs-sort-k"   onclick="setOutsSort('k')">K%</div>
+      <div class="pill" id="outs-sort-go"  onclick="setOutsSort('go')">GB%</div>
+      <div class="pill" id="outs-sort-fo"  onclick="setOutsSort('fo')">FB%</div>
+      <div class="pill" id="outs-sort-lo"  onclick="setOutsSort('lo')">LD%</div>
+      <div class="pill" id="outs-sort-ab"  onclick="setOutsSort('ab')">AB</div>
+    </div>
+    <div class="sep"></div>
+    <span class="ctrl-label">Min AB</span>
+    <div class="pill-group">
+      <div class="pill active-all" data-oab="10" onclick="setOutsMinAB(10,this)">10</div>
+      <div class="pill" data-oab="20" onclick="setOutsMinAB(20,this)">20</div>
+      <div class="pill" data-oab="40" onclick="setOutsMinAB(40,this)">40</div>
+    </div>
+    <div class="sep"></div>
+    <span class="ctrl-label">Streak Filter</span>
+    <div class="pill-group">
+      <div class="pill active-all" id="outs-streak-all"  onclick="setOutsStreakFilter('all')">All Players</div>
+      <div class="pill" id="outs-streak-cold" onclick="setOutsStreakFilter('cold')">🧊 Cold Only</div>
+      <div class="pill" id="outs-streak-hot"  onclick="setOutsStreakFilter('hot')">🔥 Hot Only</div>
+    </div>
+  </div>
+  <div id="outs-content">
+    <div class="state-box"><div class="spinner"></div><div class="msg">Loading out data…</div></div>
+  </div>
+</div>
+
 <!-- PLAYER MODAL -->
 <div class="modal-overlay" id="player-modal" onclick="closeModal(event)">
   <div class="modal" id="modal-content">
@@ -1104,6 +1137,36 @@ const STAT_CONFIG = {
   k:     { label:'Strikeouts',   hotLabel:'K Streak',         coldLabel:'K-Free Streak',      hotDesc:'Consecutive games with a strikeout',    coldDesc:'Consecutive games without a strikeout', rateKey:'kPerGame',   rateLabel:'K/G',    thresholds:[.55,.85]  },
   tb:    { label:'Total Bases',  hotLabel:'TB Streak',        coldLabel:'TB Drought',         hotDesc:'Consecutive games with a total base',   coldDesc:'Consecutive games without a total base',rateKey:'tbPerGame',  rateLabel:'TB/G',   thresholds:[1.2,2.0]  },
 };
+
+// ─── PITCHER STAT COLORS (gradient vs 2025 league mean ± 1 SD) ───────────────
+// 2025 starter means: ERA 4.20, WHIP 1.27, K/9 8.33, H/9 8.52, BB/9 2.96, HR/9 1.25
+// Gradient: interpolate from red → yellow → green based on distance from mean
+// "lowerBetter" = true for ERA, WHIP, H/9, BB/9, HR/9 | false for K/9
+const PITCH_NORMS = {
+  era:  { mean: 4.20, sd: 1.17, lowerBetter: true  },
+  whip: { mean: 1.27, sd: 0.18, lowerBetter: true  },
+  k9:   { mean: 8.33, sd: 1.68, lowerBetter: false },
+  h9:   { mean: 8.52, sd: 1.39, lowerBetter: true  },
+  bb9:  { mean: 2.96, sd: 0.80, lowerBetter: true  },
+  hr9:  { mean: 1.25, sd: 0.45, lowerBetter: true  },
+};
+
+function pitchStatColor(stat, val) {
+  const v = parseFloat(val);
+  if (isNaN(v) || val === '—') return 'var(--muted2)';
+  const norm = PITCH_NORMS[stat];
+  if (!norm) return 'var(--muted2)';
+  // z-score: how many SDs from mean (capped at ±2)
+  let z = (v - norm.mean) / norm.sd;
+  if (norm.lowerBetter) z = -z; // flip so positive z = good
+  z = Math.max(-2, Math.min(2, z));
+  // Map z to color: z >= 1 = green, z <= -1 = red, 0 = yellow
+  if (z >= 1.0) return 'var(--green)';
+  if (z >= 0.3) return '#8fdc6a'; // light green
+  if (z >= -0.3) return 'var(--gold)'; // yellow
+  if (z >= -1.0) return '#e08040'; // orange
+  return 'var(--hot)'; // red
+}
 
 // ─── FETCH HELPERS ────────────────────────────────────────
 async function fetchJSON(url) {
@@ -1422,18 +1485,18 @@ function buildMatchupCell(p) {
 
   // Pick the most relevant pitcher stat for the current tab
   const relevantStat = {
-    hits:  ps ? { lbl:'H/9',  val: ps.h9,  good: parseFloat(ps.h9)>=9.5 }  : null,
-    hr:    ps ? { lbl:'HR/9', val: ps.hr9, good: parseFloat(ps.hr9)>=1.2 } : null,
-    rbi:   ps ? { lbl:'H/9',  val: ps.h9,  good: parseFloat(ps.h9)>=9.5 }  : null,
-    walks: ps ? { lbl:'BB/9', val: ps.bb9, good: parseFloat(ps.bb9)>=3.2 } : null,
-    k:     ps ? { lbl:'K/9',  val: ps.k9,  good: parseFloat(ps.k9)<=7.0 }  : null,
+    hits:  ps ? { lbl:'H/9',  val: ps.h9,  statKey:'h9'  } : null,
+    hr:    ps ? { lbl:'HR/9', val: ps.hr9, statKey:'hr9' } : null,
+    rbi:   ps ? { lbl:'H/9',  val: ps.h9,  statKey:'h9'  } : null,
+    walks: ps ? { lbl:'BB/9', val: ps.bb9, statKey:'bb9' } : null,
+    k:     ps ? { lbl:'K/9',  val: ps.k9,  statKey:'k9'  } : null,
+    tb:    ps ? { lbl:'H/9',  val: ps.h9,  statKey:'h9'  } : null,
   }[currentStat];
 
   const pitcherName = m.pitcher.fullName;
   const lastName = pitcherName.split(' ').pop();
-  const statColor = relevantStat?.good ? 'var(--hot)' : 'var(--green)';
   const statHtml = relevantStat
-    ? `<span style="font-family:'DM Mono',monospace;font-size:9px;color:${statColor};margin-left:5px">${relevantStat.lbl} ${relevantStat.val}</span>`
+    ? `<span style="font-family:'DM Mono',monospace;font-size:9px;color:${pitchStatColor(relevantStat.statKey, relevantStat.val)};margin-left:5px">${relevantStat.lbl} ${relevantStat.val}</span>`
     : '';
 
   const eraHtml = ps
@@ -1667,10 +1730,12 @@ function setPage(page) {
   document.getElementById('games-page').classList.toggle('active', page === 'games');
   document.getElementById('thresholds-page').style.display = page === 'thresholds' ? 'block' : 'none';
   document.getElementById('pitchers-page').style.display   = page === 'pitchers'   ? 'block' : 'none';
+  document.getElementById('outs-page').style.display       = page === 'outs'       ? 'block' : 'none';
 
   if (page === 'games')      renderGamesGrid();
   if (page === 'thresholds') initThresholds();
   if (page === 'pitchers')   initPitchers();
+  if (page === 'outs')       initOuts();
 }
 
 // ─── GAMES TAB ────────────────────────────────────────────
@@ -1762,12 +1827,12 @@ function buildPitcherBox(pp) {
   const initials = pp.fullName.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   const statsHtml = ps ? `
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px">
-      <span>ERA <strong style="color:var(--text)">${ps.era}</strong></span>
-      <span>WHIP <strong style="color:var(--text)">${ps.whip}</strong></span>
-      <span>H/9 <strong style="color:${parseFloat(ps.h9)>=9.5?'var(--hot)':'var(--green)'}">${ps.h9}</strong></span>
-      <span>HR/9 <strong style="color:${parseFloat(ps.hr9)>=1.2?'var(--hot)':'var(--green)'}">${ps.hr9}</strong></span>
-      <span>BB/9 <strong style="color:${parseFloat(ps.bb9)>=3.5?'var(--hot)':'var(--green)'}">${ps.bb9}</strong></span>
-      <span>K/9 <strong style="color:${parseFloat(ps.k9)>=8.5?'var(--green)':'var(--muted2)'}">${ps.k9}</strong></span>
+      <span>ERA <strong style="color:${pitchStatColor('era',ps.era)}">${ps.era}</strong></span>
+      <span>WHIP <strong style="color:${pitchStatColor('whip',ps.whip)}">${ps.whip}</strong></span>
+      <span>H/9 <strong style="color:${pitchStatColor('h9',ps.h9)}">${ps.h9}</strong></span>
+      <span>HR/9 <strong style="color:${pitchStatColor('hr9',ps.hr9)}">${ps.hr9}</strong></span>
+      <span>BB/9 <strong style="color:${pitchStatColor('bb9',ps.bb9)}">${ps.bb9}</strong></span>
+      <span>K/9 <strong style="color:${pitchStatColor('k9',ps.k9)}">${ps.k9}</strong></span>
     </div>` : '<div style="color:var(--muted);margin-top:2px">No stats available</div>';
 
   return `
@@ -2053,10 +2118,12 @@ async function openPlayerModal(playerId) {
 
       <div class="modal-section-title">LAST ${last5.length} GAMES</div>
       ${last5.length ? `
+      <div class="gl-table-wrap">
       <table class="gl-table">
         <thead><tr><th>Date</th><th>Opp</th><th>H-AB</th><th>HR</th><th>RBI</th><th>BB</th><th>K</th><th>R</th><th>Summary</th></tr></thead>
         <tbody>${logRows}</tbody>
-      </table>` : '<div style="color:var(--muted);font-size:11px">No game log available yet.</div>'}
+      </table>
+      </div>` : '<div style="color:var(--muted);font-size:11px">No game log available yet.</div>'}
     </div>`;
 
   } catch(e) {
@@ -2524,18 +2591,11 @@ function renderPitchers() {
   const hotMax  = withStreaks.reduce((m,p) => Math.max(m,p.pHot),  1);
   const coldMax = withStreaks.reduce((m,p) => Math.max(m,p.pCold), 1);
 
-  // Stat display
   const statCol  = { k:'K/9', hits:'H/9', bb:'BB/9', ip:'IP/GS' }[pitcherStat];
   const statKey  = { k:'k9',  hits:'h9',  bb:'bb9',  ip:'ipPerStart' }[pitcherStat];
+  const normKey  = { k:'k9',  hits:'h9',  bb:'bb9',  ip:null }[pitcherStat];
   const statFn   = p => p[statKey] || '—';
-  const statColor = p => {
-    const v = parseFloat(statFn(p));
-    if (pitcherStat === 'k')    return v >= 9   ? 'rate-good' : v >= 7   ? 'rate-mid' : 'rate-low';
-    if (pitcherStat === 'hits') return v <= 7   ? 'rate-good' : v <= 9   ? 'rate-mid' : 'rate-low';
-    if (pitcherStat === 'bb')   return v <= 2   ? 'rate-good' : v <= 3.5 ? 'rate-mid' : 'rate-low';
-    if (pitcherStat === 'ip')   return v >= 6.5 ? 'rate-good' : v >= 5.5 ? 'rate-mid' : 'rate-low';
-    return '';
-  };
+  const statColor = p => normKey ? pitchStatColor(normKey, statFn(p)) : (parseFloat(statFn(p)) >= 6.5 ? 'var(--green)' : parseFloat(statFn(p)) >= 5.5 ? 'var(--gold)' : 'var(--hot)');
 
   const sc = col => pitcherSortCol===col ? 'sort-'+pitcherSortDir : '';
   const thead = `<thead><tr>
@@ -2570,7 +2630,7 @@ function renderPitchers() {
       </div></td>
       <td class="mono">${p.gs}</td>
       <td class="mono">${p.era}</td><td class="mono">${p.whip}</td><td class="mono">${p.baa}</td>
-      <td class="mono ${statColor(p)}">${statFn(p)}</td>
+      <td class="mono" style="color:${statColor(p)}">${statFn(p)}</td>
       <td class="mono">${p.k9}</td><td class="mono">${p.h9}</td>
       <td class="mono">${p.bb9}</td><td class="mono">${p.ipPerStart}</td>
       <td><div class="gl-dots">${dots}</div></td>
@@ -2626,11 +2686,11 @@ async function openPitcherModal(pitcherId) {
     // Season stat snapshot
     const snap = pitcher ? `
     <div class="stat-snapshot" style="grid-template-columns:repeat(6,1fr)">
-      <div class="snap-box"><div class="snap-val">${pitcher.era}</div><div class="snap-lbl">ERA</div></div>
-      <div class="snap-box"><div class="snap-val">${pitcher.whip}</div><div class="snap-lbl">WHIP</div></div>
-      <div class="snap-box"><div class="snap-val">${pitcher.k9}</div><div class="snap-lbl">K/9</div></div>
-      <div class="snap-box"><div class="snap-val">${pitcher.h9}</div><div class="snap-lbl">H/9</div></div>
-      <div class="snap-box"><div class="snap-val">${pitcher.bb9}</div><div class="snap-lbl">BB/9</div></div>
+      <div class="snap-box"><div class="snap-val" style="color:${pitchStatColor('era',pitcher.era)}">${pitcher.era}</div><div class="snap-lbl">ERA</div></div>
+      <div class="snap-box"><div class="snap-val" style="color:${pitchStatColor('whip',pitcher.whip)}">${pitcher.whip}</div><div class="snap-lbl">WHIP</div></div>
+      <div class="snap-box"><div class="snap-val" style="color:${pitchStatColor('k9',pitcher.k9)}">${pitcher.k9}</div><div class="snap-lbl">K/9</div></div>
+      <div class="snap-box"><div class="snap-val" style="color:${pitchStatColor('h9',pitcher.h9)}">${pitcher.h9}</div><div class="snap-lbl">H/9</div></div>
+      <div class="snap-box"><div class="snap-val" style="color:${pitchStatColor('bb9',pitcher.bb9)}">${pitcher.bb9}</div><div class="snap-lbl">BB/9</div></div>
       <div class="snap-box"><div class="snap-val">${pitcher.ipPerStart}</div><div class="snap-lbl">IP/GS</div></div>
     </div>` : '';
 
@@ -2687,15 +2747,216 @@ async function openPitcherModal(pitcherId) {
       <div class="streak-pills">${streakPills}</div>
       <div class="modal-section-title">LAST ${last5.length} STARTS</div>
       ${last5.length ? `
+      <div class="gl-table-wrap">
       <table class="gl-table">
         <thead><tr><th>Date</th><th>Opp</th><th>IP</th><th>K</th><th>H</th><th>BB</th><th>ER</th><th>Dec</th><th>Line</th></tr></thead>
         <tbody>${logRows}</tbody>
-      </table>` : '<div style="color:var(--muted);font-size:11px">No starts available yet.</div>'}
+      </table>
+      </div>` : '<div style="color:var(--muted);font-size:11px">No starts available yet.</div>'}
     </div>`;
 
   } catch(e) {
     content.innerHTML = `<div class="state-box"><div class="msg">⚠ ${e.message}</div></div>`;
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ─── OUTS TAB ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+let outsData      = [];   // aggregated per-player out breakdown
+let outsLoaded    = false;
+let outsSort      = 'k';  // k | go | fo | lo | ab
+let outsMinAB     = 10;
+let outsStreakFilter = 'all'; // all | cold | hot
+
+function setOutsSort(s) {
+  outsSort = s;
+  ['k','go','fo','lo','ab'].forEach(k => {
+    document.getElementById(`outs-sort-${k}`).className = 'pill' + (k===s?' active-all':'');
+  });
+  renderOuts();
+}
+
+function setOutsMinAB(n, el) {
+  outsMinAB = n;
+  document.querySelectorAll('[data-oab]').forEach(e => e.className='pill');
+  el.className = 'pill active-all';
+  renderOuts();
+}
+
+function setOutsStreakFilter(f) {
+  outsStreakFilter = f;
+  document.getElementById('outs-streak-all').className  = 'pill'+(f==='all'?' active-all':'');
+  document.getElementById('outs-streak-cold').className = 'pill'+(f==='cold'?' active-cold':'');
+  document.getElementById('outs-streak-hot').className  = 'pill'+(f==='hot'?' active-hot':'');
+  renderOuts();
+}
+
+async function initOuts() {
+  if (!outsLoaded) await loadOutsData();
+  else renderOuts();
+}
+
+async function loadOutsData() {
+  const content = document.getElementById('outs-content');
+  content.innerHTML = `<div class="state-box"><div class="spinner"></div><div class="msg">LOADING OUT BREAKDOWN…</div></div>`;
+  try {
+    const season = new Date(Date.now() - 4*3600000).toISOString().slice(0,4);
+    // Fetch all players' game logs — reuse masterPlayers list, batch fetch
+    const ids = masterPlayers.map(p => p.id);
+    const BATCH = 10;
+    const playerOutMap = {};
+
+    content.innerHTML = `<div class="state-box"><div class="spinner"></div><div class="msg">FETCHING OUT DATA…<br><span style="font-size:9px;color:var(--muted)">${ids.length} players</span></div></div>`;
+
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const batch = ids.slice(i, i+BATCH);
+      await Promise.all(batch.map(async id => {
+        try {
+          const resp = await fetchJSON(`${API}/people/${id}/stats?stats=gameLog&group=hitting&season=${season}&gameType=R`);
+          const splits = resp.stats?.[0]?.splits || [];
+          if (!splits.length) return;
+          let totalAB=0, totalK=0, totalGO=0, totalFO=0, totalLO=0, totalOut=0;
+          for (const s of splits) {
+            const st = s.stat;
+            totalAB  += st.atBats          || 0;
+            totalK   += st.strikeOuts      || 0;
+            totalGO  += st.groundOuts      || 0;
+            // airOuts = fly balls + line drives + popups (everything not a groundout)
+            // flyOuts is fly balls specifically; lineOuts not directly available
+            // We derive: lineOuts = airOuts - flyOuts (approximation)
+            const airOuts = st.airOuts  || 0;
+            const flyOuts = st.flyOuts  || 0; // MLB API has flyOuts
+            const lineOuts = Math.max(0, airOuts - flyOuts);
+            totalFO  += flyOuts;
+            totalLO  += lineOuts;
+            totalOut += totalK + totalGO + airOuts;
+          }
+          playerOutMap[id] = { totalAB, totalK, totalGO, totalFO, totalLO, totalOut };
+        } catch(e) { /* skip */ }
+      }));
+    }
+
+    // Merge with masterPlayers for display
+    outsData = masterPlayers
+      .filter(p => playerOutMap[p.id] && playerOutMap[p.id].totalAB >= 1)
+      .map(p => {
+        const o = playerOutMap[p.id];
+        const outs = o.totalK + o.totalGO + o.totalFO + o.totalLO;
+        return {
+          ...p,
+          oAB: o.totalAB,
+          oK:  o.totalK,
+          oGO: o.totalGO,
+          oFO: o.totalFO,
+          oLO: o.totalLO,
+          oTotal: outs,
+          kPct:  outs > 0 ? o.totalK  / outs * 100 : 0,
+          goPct: outs > 0 ? o.totalGO / outs * 100 : 0,
+          foPct: outs > 0 ? o.totalFO / outs * 100 : 0,
+          loPct: outs > 0 ? o.totalLO / outs * 100 : 0,
+        };
+      });
+
+    outsLoaded = true;
+    renderOuts();
+  } catch(e) {
+    document.getElementById('outs-content').innerHTML =
+      `<div class="state-box"><div class="msg">⚠ ${e.message}</div></div>`;
+  }
+}
+
+function renderOuts() {
+  if (!outsLoaded) return;
+  const content = document.getElementById('outs-content');
+
+  // Filter by min AB and streak filter
+  let pool = outsData.filter(p => p.oAB >= outsMinAB);
+  if (outsStreakFilter === 'cold') pool = pool.filter(p => p.streak_hits_cold >= 1);
+  if (outsStreakFilter === 'hot')  pool = pool.filter(p => p.streak_hits_hot  >= 1);
+
+  // Sort
+  const sortKeys = { k:'kPct', go:'goPct', fo:'foPct', lo:'loPct', ab:'oAB' };
+  const sortKey = sortKeys[outsSort] || 'kPct';
+  pool = [...pool].sort((a,b) => b[sortKey] - a[sortKey]);
+
+  if (!pool.length) {
+    content.innerHTML = `<div class="state-box"><div class="msg">No players match filters.</div></div>`;
+    return;
+  }
+
+  // Bar color function — red at high%, green at low%
+  const barColor = (pct, stat) => {
+    // K%: high = bad (red), low = good (green)
+    // GO%: high = mostly grounders (ok, depends on batter type)
+    // FO%: high = fly ball hitter (good for power)
+    // LO%: high = line drives (best)
+    const good = stat === 'lo' || stat === 'fo';
+    if (pct >= 50) return good ? 'var(--green)' : 'var(--hot)';
+    if (pct >= 30) return good ? '#8fdc6a' : '#e08040';
+    return good ? 'var(--gold)' : 'var(--green)';
+  };
+
+  const rows = pool.map((p, i) => {
+    const init = p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+    const coldStreak = p.streak_hits_cold || 0;
+    const hotStreak  = p.streak_hits_hot  || 0;
+    const streakBadge = coldStreak >= 1
+      ? `<span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--cold);margin-left:5px">🧊 ${coldStreak}G</span>`
+      : hotStreak >= 1
+      ? `<span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--hot);margin-left:5px">🔥 ${hotStreak}G</span>`
+      : '';
+
+    const bar = (pct, stat) => {
+      const w = Math.min(100, pct);
+      const color = barColor(pct, stat);
+      return `<div style="display:flex;align-items:center;gap:6px;min-width:90px">
+        <div style="flex:1;height:5px;background:var(--border2);border-radius:3px;overflow:hidden">
+          <div style="width:${w}%;height:100%;background:${color};border-radius:3px"></div>
+        </div>
+        <span style="font-family:'DM Mono',monospace;font-size:10px;color:${color};min-width:32px;text-align:right">${pct.toFixed(0)}%</span>
+      </div>`;
+    };
+
+    return `<tr style="cursor:pointer" onclick="openPlayerModal(${p.id})">
+      <td>${i+1}</td>
+      <td><div class="player-cell">
+        <div class="player-avatar"><img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_60,q_auto:best/v1/people/${p.id}/headshot/silo/current" onerror="this.style.display='none';this.parentElement.textContent='${init}'" alt=""></div>
+        <div><div class="player-name">${p.name}${streakBadge}</div><div class="player-team">${p.team}</div></div>
+      </div></td>
+      <td class="mono">${p.oAB}</td>
+      <td class="mono">${p.oTotal}</td>
+      <td>${bar(p.kPct, 'k')}</td>
+      <td>${bar(p.goPct, 'go')}</td>
+      <td>${bar(p.foPct, 'fo')}</td>
+      <td>${bar(p.loPct, 'lo')}</td>
+      <td class="mono" style="color:var(--muted);font-size:10px">${p.oK}K / ${p.oGO}GO / ${p.oFO}FO / ${p.oLO}LO</td>
+    </tr>`;
+  }).join('');
+
+  const tsc = col => outsSort===col?'sort-desc':'';
+  content.innerHTML = `
+  <div class="section-header">
+    <div class="section-title" style="color:var(--accent)">📊 Out Breakdown</div>
+    <div class="streak-meta">How batters are making outs · ${pool.length} players</div>
+    <div class="count-badge">${pool.length} players</div>
+  </div>
+  <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:12px;padding:8px 12px;background:var(--surface);border-radius:6px;border:1px solid var(--border)">
+    K = strikeout · GO = groundout · FO = flyout · LO = lineout · % of total outs
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr>
+      <th>#</th><th>Player</th>
+      <th onclick="setOutsSort('ab')" class="${tsc('ab')}">AB</th>
+      <th>Outs</th>
+      <th onclick="setOutsSort('k')" class="${tsc('k')}">K%</th>
+      <th onclick="setOutsSort('go')" class="${tsc('go')}">GO%</th>
+      <th onclick="setOutsSort('fo')" class="${tsc('fo')}">FO%</th>
+      <th onclick="setOutsSort('lo')" class="${tsc('lo')}">LO%</th>
+      <th>Breakdown</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
 }
 
 // ─── BOOT ─────────────────────────────────────────────────

@@ -415,6 +415,30 @@
   .rate-mid  { color: var(--gold); }
   .rate-low  { color: var(--muted2); }
 
+
+  /* ─── INJURY BADGES ───────────────────────── */
+  .injury-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 6px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,92,58,.45);
+    background: rgba(255,92,58,.12);
+    color: var(--hot);
+    font-family: 'DM Mono', monospace;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: .4px;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .injury-badge.il { border-color: rgba(255,92,58,.55); background: rgba(255,92,58,.14); color: var(--hot); }
+  .injury-badge.dtd { border-color: rgba(240,192,64,.55); background: rgba(240,192,64,.14); color: var(--gold); }
+  .injury-badge.unknown { border-color: var(--border2); background: var(--surface); color: var(--muted2); }
+  .player-name .injury-badge, .modal-name .injury-badge, .section-title .injury-badge { position: relative; top: -1px; }
+
   /* ─── LOADING / ERROR ────────────────────── */
   .state-box {
     display: flex;
@@ -1336,6 +1360,95 @@
     .game-stat-tabs .pill { padding: 4px 8px; font-size: 10px; }
     th { padding: 5px 6px; font-size: 7px; }
   }
+
+
+  /* ─── DAILY LOG + AT-BAT MODE ADDITIONS ───────────────── */
+  .tool-panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 18px;
+  }
+  .tool-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .tool-label {
+    font-family:'DM Mono',monospace;
+    font-size:9px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:1px;
+  }
+  .tool-input {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    padding: 7px 10px;
+    border-radius: 7px;
+    font-family:'DM Sans',sans-serif;
+    font-size:12px;
+    outline:none;
+  }
+  .tool-input:focus { border-color: var(--accent); box-shadow:0 0 0 2px rgba(79,127,255,.1); }
+  .tool-btn {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color:#fff;
+    padding:7px 12px;
+    border-radius:7px;
+    cursor:pointer;
+    font-family:'DM Mono',monospace;
+    font-size:10px;
+    font-weight:700;
+    letter-spacing:.5px;
+  }
+  .tool-btn:hover { filter: brightness(1.08); }
+  .tool-hint {
+    margin-top:9px;
+    color:var(--muted);
+    font-family:'DM Mono',monospace;
+    font-size:10px;
+    line-height:1.5;
+  }
+  .status-chip {
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    padding:3px 8px;
+    border-radius:20px;
+    font-family:'DM Mono',monospace;
+    font-size:10px;
+    border:1px solid var(--border2);
+  }
+  .status-chip.good { color:var(--green); border-color:rgba(61,220,151,.35); background:rgba(61,220,151,.08); }
+  .status-chip.bad { color:var(--hot); border-color:rgba(255,92,58,.35); background:rgba(255,92,58,.08); }
+  .status-chip.wait { color:var(--gold); border-color:rgba(240,192,64,.35); background:rgba(240,192,64,.08); }
+  .ab-card-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin:14px 0; }
+  .ab-card {
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:12px;
+  }
+  .ab-card-title { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
+  .ab-card-val { font-family:'Bebas Neue',sans-serif; font-size:28px; margin-top:4px; }
+  .ab-seq { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .ab-pill {
+    border:1px solid var(--border2);
+    background:var(--surface);
+    border-radius:10px;
+    padding:9px 10px;
+    min-width:110px;
+  }
+  .ab-pill .ab-num { font-family:'DM Mono',monospace; font-size:9px; color:var(--muted); }
+  .ab-pill .ab-result { font-weight:700; margin-top:3px; font-size:12px; }
+  .ab-pill.hit { border-color:rgba(61,220,151,.45); background:rgba(61,220,151,.06); }
+  .ab-pill.out { border-color:rgba(255,92,58,.35); background:rgba(255,92,58,.05); }
+  @media (max-width:700px) {
+    #dailylog-page, #atbat-page { padding:12px 14px !important; }
+    .tool-row { align-items:stretch; }
+    .tool-input, .tool-btn { width:100%; }
+  }
+
 </style>
 </head>
 <body>
@@ -1380,6 +1493,8 @@
   <div class="page-tab" onclick="setPage('edge')">🔥 Edge</div>
   <div class="page-tab" onclick="setPage('pitches')">🎳 Pitches</div>
   <div class="page-tab" onclick="setPage('pa')">📈 PA Model</div>
+  <div class="page-tab" onclick="setPage('dailylog')">📆 Daily Log</div>
+  <div class="page-tab" onclick="setPage('atbat')">🎯 At-Bat Mode</div>
 </div>
 
 <!-- CONTROLS (players page only) -->
@@ -1668,6 +1783,55 @@
   </div>
 </div>
 
+<!-- MAIN: DAILY HISTORICAL LOG PAGE -->
+<div id="dailylog-page" style="display:none;padding:20px 28px">
+  <div class="section-header">
+    <div>
+      <div class="section-title">📆 Daily Historical Log</div>
+      <div class="streak-meta">Pick a date and see the top streaks entering that day, plus whether they extended or snapped.</div>
+    </div>
+  </div>
+  <div class="tool-panel">
+    <div class="tool-row">
+      <label class="tool-label">Date</label>
+      <input type="date" id="dailylog-date" class="tool-input">
+      <label class="tool-label">Stat</label>
+      <select id="dailylog-stat" class="tool-input">
+        <option value="hits">Hits</option>
+        <option value="tb">Total Bases</option>
+        <option value="hr">Home Runs</option>
+        <option value="rbi">RBI</option>
+        <option value="k">Strikeouts</option>
+      </select>
+      <label class="tool-label">Min Streak</label>
+      <input type="number" id="dailylog-min" class="tool-input" min="1" max="30" value="3" style="width:72px">
+      <button class="tool-btn" onclick="renderDailyLog()">Build Log</button>
+    </div>
+    <div class="tool-hint">MVP note: this uses MLB game logs and calculates streaks before the selected game date.</div>
+  </div>
+  <div id="dailylog-results" class="state-box"><div class="msg">Choose a date, then build the historical board.</div></div>
+</div>
+
+<!-- MAIN: AT-BAT MODE PAGE -->
+<div id="atbat-page" style="display:none;padding:20px 28px">
+  <div class="section-header">
+    <div>
+      <div class="section-title">🎯 At-Bat Mode</div>
+      <div class="streak-meta">Track a selected player’s live plate appearances, AB sequence, and hit-streak status for today’s game.</div>
+    </div>
+  </div>
+  <div class="tool-panel">
+    <div class="tool-row">
+      <label class="tool-label">Player</label>
+      <input id="atbat-player-input" class="tool-input" list="atbat-player-list" placeholder="Search player...">
+      <datalist id="atbat-player-list"></datalist>
+      <button class="tool-btn" onclick="renderAtBatMode()">Load Player</button>
+    </div>
+    <div class="tool-hint">Works best once today’s schedule has loaded. Live games update after Refresh.</div>
+  </div>
+  <div id="atbat-results" class="state-box"><div class="msg">Pick a player to see today’s AB/PA sequence.</div></div>
+</div>
+
 <!-- PLAYER MODAL -->
 <div class="modal-overlay" id="player-modal" onclick="closeModal(event)">
   <div class="modal" id="modal-content">
@@ -1678,6 +1842,7 @@
 <script>
 // ─── STATE ────────────────────────────────────────────────
 const API = 'https://statsapi.mlb.com/api/v1';
+const API_V11 = 'https://statsapi.mlb.com/api/v1.1';
 
 const TEAM_ABB = {
   133:'ATH',134:'PIT',135:'SD',136:'SEA',137:'SF',138:'STL',139:'TB',
@@ -1689,6 +1854,148 @@ const TEAM_ABB = {
 function getTeamAbb(teamObj) {
   if (!teamObj) return '???';
   return TEAM_ABB[teamObj.id] || teamObj.name?.slice(0,3).toUpperCase() || '???';
+}
+
+// ─── INJURY STATUS LAYER ──────────────────────────────────
+// Shows small badges beside player names across the app. Healthy players show nothing.
+// Data source: MLB recent transactions + optional manual local overrides.
+let injuryStatusMap = {}; // playerId -> { label, detail, className, source, date }
+
+const INJURY_ROSTER_TYPES = ['injuredList','10DayInjuredList','15DayInjuredList','60DayInjuredList'];
+
+function normalizeInjuryStatus(raw='') {
+  const t = String(raw).toLowerCase();
+  if (/day\s*-?\s*to\s*-?\s*day|\bdtd\b/.test(t)) return { label:'DTD', className:'dtd', emoji:'⚠️' };
+  if (/60\s*-?\s*day/.test(t)) return { label:'IL-60', className:'il', emoji:'🏥' };
+  if (/15\s*-?\s*day/.test(t)) return { label:'IL-15', className:'il', emoji:'🏥' };
+  if (/10\s*-?\s*day/.test(t)) return { label:'IL-10', className:'il', emoji:'🏥' };
+  if (/injured list|\bil\b/.test(t)) return { label:'IL', className:'il', emoji:'🏥' };
+  return { label:'INJ', className:'unknown', emoji:'❓' };
+}
+
+function looksLikeActiveInjury(raw='') {
+  const t = String(raw).toLowerCase();
+  return /injured list|\bil\b|10\s*-?\s*day|15\s*-?\s*day|60\s*-?\s*day|day\s*-?\s*to\s*-?\s*day|\bdtd\b|injur/.test(t);
+}
+
+function looksLikeClearInjuryMove(raw='') {
+  const t = String(raw).toLowerCase();
+  return /reinstated|activated|returned from|returned|optioned|assigned outright|selected/.test(t) && !looksLikeActiveInjury(t);
+}
+
+function injuryBadgeById(id) {
+  if (id === undefined || id === null || id === '') return '';
+  const info = injuryStatusMap[String(id)];
+  if (!info) return '';
+  const title = `${info.label}${info.detail ? ': ' + info.detail : ''}${info.date ? ' · ' + info.date : ''}`;
+  const safeTitle = String(title).replace(/"/g, '&quot;');
+  return `<span class="injury-badge ${info.className || 'unknown'}" title="${safeTitle}">${info.emoji || '⚠️'} ${info.label}</span>`;
+}
+
+function playerNameWithInjury(p) {
+  if (!p) return '';
+  const playerId = p.id ?? p.playerId ?? p.pid;
+  return `${p.name || p.fullName || 'Player'}${injuryBadgeById(playerId)}`;
+}
+
+function saveManualInjuryStatus(playerId, label='DTD', detail='Manual injury note') {
+  const current = JSON.parse(localStorage.getItem('manualInjuryStatuses') || '{}');
+  const norm = normalizeInjuryStatus(label);
+  current[String(playerId)] = { ...norm, label: norm.label, detail, source:'manual', date: etDateString ? etDateString() : '' };
+  localStorage.setItem('manualInjuryStatuses', JSON.stringify(current));
+  injuryStatusMap[String(playerId)] = current[String(playerId)];
+  refreshVisiblePage();
+}
+
+function clearManualInjuryStatus(playerId) {
+  const current = JSON.parse(localStorage.getItem('manualInjuryStatuses') || '{}');
+  delete current[String(playerId)];
+  localStorage.setItem('manualInjuryStatuses', JSON.stringify(current));
+  delete injuryStatusMap[String(playerId)];
+  refreshVisiblePage();
+}
+
+function refreshVisiblePage() {
+  if (currentPage === 'players') renderContent();
+  else if (currentPage === 'games') renderGamesGrid();
+  else if (currentPage === 'dailylog') renderDailyLog();
+  else if (currentPage === 'atbat') renderAtBatMode();
+  else if (currentPage === 'thresholds') initThresholds();
+  else if (currentPage === 'outs') initOuts();
+  else if (currentPage === 'edge') initEdge();
+  else if (currentPage === 'pa') initPA();
+}
+
+async function loadInjuryStatuses(today) {
+  injuryStatusMap = {};
+
+  // 1) Current IL rosters — IMPORTANT FIX:
+  // Do NOT blindly mark everyone returned by the roster endpoint as IL.
+  // Some MLB rosterType calls can return a normal roster, so we only badge a player
+  // when the player's own status text/code clearly says injured/IL.
+  const teamIds = Object.keys(TEAM_ABB).map(Number);
+  await Promise.all(teamIds.map(async teamId => {
+    for (const rosterType of INJURY_ROSTER_TYPES) {
+      try {
+        const resp = await fetchJSON(`${API}/teams/${teamId}/roster?rosterType=${rosterType}`);
+        (resp.roster || []).forEach(r => {
+          const person = r.person || {};
+          if (!person.id) return;
+
+          const statusText = [
+            r.status?.description,
+            r.status?.code,
+            r.status,
+            r.rosterStatus,
+            r.parentTeamName
+          ].filter(Boolean).join(' ');
+
+          if (!looksLikeActiveInjury(statusText)) return;
+
+          const norm = normalizeInjuryStatus(statusText || rosterType);
+          injuryStatusMap[String(person.id)] = {
+            ...norm,
+            detail: statusText || rosterType,
+            source: 'roster'
+          };
+        });
+      } catch(e) { /* roster type unsupported — skip */ }
+    }
+  }));
+
+  // 2) Recent transactions catch IL moves and DTD-style notes when exposed.
+  // Only the latest transaction for each player is used, so activations clear old IL flags.
+  try {
+    const start = new Date(new Date(today).getTime() - 210 * 86400000).toISOString().slice(0,10);
+    const tx = await fetchJSON(`${API}/transactions?sportId=1&startDate=${start}&endDate=${today}&playerPool=ALL`);
+    const latest = {};
+    (tx.transactions || []).forEach(t => {
+      const person = t.person || t.player || {};
+      const id = person.id;
+      if (!id) return;
+      const text = [t.typeDesc, t.description, t.note, t.fromTeam?.name, t.toTeam?.name].filter(Boolean).join(' ');
+      const date = t.effectiveDate || t.date || '';
+      if (!latest[id] || String(date) >= String(latest[id].date || '')) latest[id] = { text, date };
+    });
+
+    Object.entries(latest).forEach(([id, rec]) => {
+      const text = rec.text || '';
+      if (looksLikeClearInjuryMove(text)) {
+        delete injuryStatusMap[String(id)];
+        return;
+      }
+      if (looksLikeActiveInjury(text)) {
+        const norm = normalizeInjuryStatus(text);
+        injuryStatusMap[String(id)] = { ...norm, detail: text.replace(/\s+/g,' ').trim(), source:'transactions', date: rec.date };
+      }
+    });
+  } catch(e) { /* transactions unavailable — badges simply won't show */ }
+
+  // 3) Manual overrides let you force DTD/IL if MLB API misses a player.
+  try {
+    const manual = JSON.parse(localStorage.getItem('manualInjuryStatuses') || '{}');
+    Object.assign(injuryStatusMap, manual);
+  } catch(e) {}
 }
 let masterPlayers = [];   // full unfiltered list — never mutated after load
 let allPlayers    = [];   // view slice (filtered by minAB)
@@ -1813,6 +2120,7 @@ async function loadData() {
     });
 
     updateLiveBar(todayGames);
+    await loadInjuryStatuses(today);
 
     // 2. Current season stats
     const statsResp = await fetchJSON(`${API}/stats?stats=season&group=hitting&season=${season}&gameType=R&limit=500&sortStat=atBats&order=desc`);
@@ -1856,6 +2164,7 @@ async function loadData() {
         name: s.player.fullName,
         team: getTeamAbb(s.team),
         teamId: s.team?.id || null,
+        injury: injuryStatusMap[String(id)] || null,
         ab:   st.atBats || 0,
         h:    st.hits || 0,
         r:    st.runs || 0,
@@ -2364,7 +2673,7 @@ function buildRow(p, rank, streakVal, type, pct, rateVal, cfg, logKey) {
                onerror="this.style.display='none';this.parentElement.textContent='${initials}'" alt="">
         </div>
         <div>
-          <div class="player-name">${p.name}</div>
+          <div class="player-name">${playerNameWithInjury(p)}</div>
           <div class="player-team">${p.team}</div>
         </div>
       </div>
@@ -2561,7 +2870,7 @@ let todaySchedule = []; // stored from loadData
 function setPage(page) {
   currentPage = page;
   const tabs = document.querySelectorAll('.page-tab');
-  const pages = ['players','games','thresholds','pitchers'];
+  const pages = ['players','games','thresholds','pitchers','outs','edge','pitches','pa','dailylog','atbat'];
   tabs.forEach((el,i) => el.classList.toggle('active', pages[i] === page));
 
   document.getElementById('players-page').classList.toggle('hidden', page !== 'players');
@@ -2573,6 +2882,8 @@ function setPage(page) {
   document.getElementById('edge-page').style.display       = page === 'edge'       ? 'block' : 'none';
   document.getElementById('pitches-page').style.display    = page === 'pitches'    ? 'block' : 'none';
   document.getElementById('pa-page').style.display         = page === 'pa'         ? 'block' : 'none';
+  document.getElementById('dailylog-page').style.display   = page === 'dailylog'   ? 'block' : 'none';
+  document.getElementById('atbat-page').style.display      = page === 'atbat'      ? 'block' : 'none';
 
   if (page === 'games')      renderGamesGrid();
   if (page === 'thresholds') initThresholds();
@@ -2581,6 +2892,8 @@ function setPage(page) {
   if (page === 'edge')       initEdge();
   if (page === 'pitches')    initPitches();
   if (page === 'pa')         initPA();
+  if (page === 'dailylog')   initDailyLog();
+  if (page === 'atbat')      initAtBatMode();
 }
 
 // ─── GAMES TAB ────────────────────────────────────────────
@@ -2831,7 +3144,7 @@ async function openGameDetail(gamePk, awayAbb, homeAbb, awayName, homeName, away
                  onerror="this.style.display='none';this.parentElement.textContent='${initials}'" alt="">
           </div>
           <div class="game-player-info">
-            <div class="game-player-name">${r.name}${r.pos ? `<span style="font-size:9px;color:var(--muted);margin-left:5px">${r.pos}</span>` : ''}</div>
+            <div class="game-player-name">${r.name}${injuryBadgeById(r.pid)}${r.pos ? `<span style="font-size:9px;color:var(--muted);margin-left:5px">${r.pos}</span>` : ''}</div>
             <div class="game-player-stats">AVG ${avgStr} · ${cfg.rateLabel} ${rateStr}</div>
           </div>
           <div class="game-today-line">${r.todaySummary}</div>
@@ -3083,8 +3396,9 @@ async function openPlayerModal(playerId, _tab) {
              onerror="this.style.display='none';this.parentElement.textContent='${initials}'" alt="">
       </div>
       <div style="flex:1">
-        <div class="modal-name">${player.name}</div>
+        <div class="modal-name">${playerNameWithInjury(player)}</div>
         <div class="modal-meta">${player.team} · ${svAB} AB · ${svPA} PA · ${svAvg}</div>
+        <div class="modal-meta" style="margin-top:5px">${injuryStatusMap[String(playerId)] ? injuryStatusMap[String(playerId)].detail || injuryStatusMap[String(playerId)].label : 'Active / no injury flag'}</div>
       </div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
@@ -3272,7 +3586,7 @@ function renderThresholds() {
       <td>${i+1}</td>
       <td><div class="player-cell">
         <div class="player-avatar"><img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_60,q_auto:best/v1/people/${p.id}/headshot/silo/current" onerror="this.style.display='none';this.parentElement.textContent='${initials}'" alt=""></div>
-        <div><div class="player-name">${p.name}</div><div class="player-team">${p.team}</div></div>
+        <div><div class="player-name">${playerNameWithInjury(p)}</div><div class="player-team">${p.team}</div></div>
       </div></td>
       <td><div class="streak-cell">
         <div class="streak-num ${type}">${sv}</div>
@@ -3716,7 +4030,7 @@ function renderPitchers() {
       <td>${i+1}</td>
       <td><div class="player-cell">
         <div class="player-avatar"><img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_60,q_auto:best/v1/people/${p.id}/headshot/silo/current" onerror="this.style.display='none';this.parentElement.textContent='${initials}'" alt=""></div>
-        <div><div class="player-name">${p.name}</div><div class="player-team">${p.team}</div></div>
+        <div><div class="player-name">${playerNameWithInjury(p)}</div><div class="player-team">${p.team}</div></div>
       </div></td>
       <td><div class="streak-cell">
         <div class="streak-num ${type}">${sv}</div>
@@ -4372,7 +4686,7 @@ function renderEdge() {
       <td>${i+1}</td>
       <td><div style="display:flex;align-items:center;gap:8px">
         <div class="player-avatar"><img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_60,q_auto:best/v1/people/${p.id}/headshot/silo/current" onerror="this.style.display='none';this.parentElement.textContent='${init}'" alt=""></div>
-        <div><div class="player-name">${p.name}</div><div class="player-team">${p.team} · AVG ${p.avg}</div></div>
+        <div><div class="player-name">${playerNameWithInjury(p)}</div><div class="player-team">${p.team} · AVG ${p.avg}</div></div>
       </div></td>
       <td><div style="text-align:center">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--cold);line-height:1">${coldAB}</div>
@@ -5052,7 +5366,7 @@ function renderPA() {
           <img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_60,q_auto:best/v1/people/${p.id}/headshot/silo/current"
                onerror="this.style.display='none';this.parentElement.textContent='${p.name.split(' ').map(w=>w[0]).join('').slice(0,2)}'" alt="">
         </div>
-        <div><div class="player-name">${p.name}</div><div class="player-team">${p.team} · ${pa.totPA} PA</div></div>
+        <div><div class="player-name">${playerNameWithInjury(p)}</div><div class="player-team">${p.team} · ${pa.totPA} PA</div></div>
       </div></td>
       <td>
         <div style="min-width:130px">
@@ -5116,6 +5430,267 @@ function renderPA() {
     <tbody>${rows}</tbody>
   </table></div>`;
 }
+
+
+
+function avatarHTML(p) {
+  const initials = (p.name || '?').split(' ').map(x => x[0]).join('').slice(0,2).toUpperCase();
+  return `<div class="player-avatar"><img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_60,q_auto:best/v1/people/${p.id}/headshot/67/current" onerror="this.remove();this.parentNode.textContent='${initials}'"></div>`;
+}
+
+// ─── DAILY HISTORICAL LOG + AT-BAT MODE ───────────────────
+const dailyLogCache = {}; // key: playerId-season -> gameLog splits
+
+function etDateString(d = new Date()) {
+  return new Date(d.getTime() - 4 * 3600000).toISOString().slice(0,10);
+}
+
+function initDailyLog() {
+  const dateInput = document.getElementById('dailylog-date');
+  if (dateInput && !dateInput.value) dateInput.value = etDateString();
+}
+
+function dailyStatValue(statKey, st) {
+  const tb = (st.hits||0) + (st.doubles||0) + (st.triples||0)*2 + (st.homeRuns||0)*3;
+  if (statKey === 'hits') return st.hits || 0;
+  if (statKey === 'tb') return tb;
+  if (statKey === 'hr') return st.homeRuns || 0;
+  if (statKey === 'rbi') return st.rbi || 0;
+  if (statKey === 'k') return st.strikeOuts || 0;
+  return st.hits || 0;
+}
+
+async function getDailyGameLog(playerId, season) {
+  const key = `${playerId}-${season}`;
+  if (dailyLogCache[key]) return dailyLogCache[key];
+  const resp = await fetchJSON(`${API}/people/${playerId}/stats?stats=gameLog&group=hitting&season=${season}&gameType=R`);
+  const splits = resp.stats?.[0]?.splits || [];
+  dailyLogCache[key] = splits;
+  return splits;
+}
+
+function calcStreakBeforeDate(splits, selectedDate, statKey) {
+  const before = splits.filter(s => s.date < selectedDate);
+  const today = splits.find(s => s.date === selectedDate);
+  let streak = 0;
+  for (let i = before.length - 1; i >= 0; i--) {
+    const st = before[i].stat || {};
+    const ab = st.atBats || 0;
+    if (ab === 0 && statKey === 'hits') continue;
+    if (dailyStatValue(statKey, st) > 0) streak++;
+    else break;
+  }
+  const todayVal = today ? dailyStatValue(statKey, today.stat || {}) : null;
+  const todayAB = today ? (today.stat?.atBats || 0) : null;
+  let result = 'No game';
+  let resultClass = 'wait';
+  if (today) {
+    if (todayVal > 0) { result = `✅ Extended`; resultClass = 'good'; }
+    else if ((todayAB || 0) > 0 || statKey !== 'hits') { result = `❌ Snapped`; resultClass = 'bad'; }
+    else { result = '⏳ No AB'; resultClass = 'wait'; }
+  }
+  return { streak, todayVal, todayAB, result, resultClass };
+}
+
+async function renderDailyLog() {
+  const out = document.getElementById('dailylog-results');
+  const selectedDate = document.getElementById('dailylog-date').value || etDateString();
+  const statKey = document.getElementById('dailylog-stat').value || 'hits';
+  const minStreak = parseInt(document.getElementById('dailylog-min').value || '1', 10);
+  const season = selectedDate.slice(0,4);
+
+  if (!masterPlayers.length) {
+    out.innerHTML = `<div class="state-box"><div class="msg">Load player data first, then try again.</div></div>`;
+    return;
+  }
+
+  out.innerHTML = `<div class="state-box"><div class="spinner"></div><div class="msg">Building historical board…<br><span style="font-size:9px;color:var(--muted)">checking top ${Math.min(masterPlayers.length, 250)} players</span></div></div>`;
+
+  const pool = masterPlayers.filter(p => (p.ab || 0) >= 25).slice(0, 250);
+  const rows = [];
+  const BATCH = 10;
+  for (let i = 0; i < pool.length; i += BATCH) {
+    const batch = pool.slice(i, i+BATCH);
+    const results = await Promise.all(batch.map(async p => {
+      try {
+        const splits = await getDailyGameLog(p.id, season);
+        const r = calcStreakBeforeDate(splits, selectedDate, statKey);
+        return { player:p, ...r };
+      } catch(e) { return null; }
+    }));
+    rows.push(...results.filter(Boolean));
+    if (i % 40 === 0) {
+      out.innerHTML = `<div class="state-box"><div class="spinner"></div><div class="msg">Building historical board… ${Math.min(i+BATCH, pool.length)}/${pool.length}</div></div>`;
+    }
+  }
+
+  const filtered = rows
+    .filter(r => r.streak >= minStreak)
+    .sort((a,b) => b.streak - a.streak || (b.todayVal||0) - (a.todayVal||0))
+    .slice(0, 50);
+
+  if (!filtered.length) {
+    out.innerHTML = `<div class="state-box"><div class="msg">No streaks found for ${selectedDate} with that filter.</div></div>`;
+    return;
+  }
+
+  const label = STAT_CONFIG[statKey]?.label || statKey.toUpperCase();
+  out.innerHTML = `
+    <div class="section-header">
+      <div class="section-title">${label} Streaks Entering ${selectedDate}</div>
+      <div class="count-badge">${filtered.length} shown</div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th>#</th><th>Player</th><th>Team</th><th>Entering Streak</th><th>Result That Day</th><th>Value That Day</th>
+      </tr></thead>
+      <tbody>
+        ${filtered.map((r,i) => `
+          <tr onclick="openPlayerModal(${r.player.id})">
+            <td>${i+1}</td>
+            <td><div class="player-cell">${avatarHTML(r.player)}<div><div class="player-name">${playerNameWithInjury(r.player)}</div><div class="player-team">${r.player.team}</div></div></div></td>
+            <td class="mono">${r.player.team}</td>
+            <td><span class="streak-num hot">${r.streak}</span></td>
+            <td><span class="status-chip ${r.resultClass}">${r.result}</span></td>
+            <td class="mono">${r.todayVal === null ? '—' : r.todayVal}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+function initAtBatMode() {
+  const list = document.getElementById('atbat-player-list');
+  if (list && masterPlayers.length && !list.children.length) {
+    list.innerHTML = masterPlayers
+      .slice()
+      .sort((a,b) => a.name.localeCompare(b.name))
+      .map(p => `<option value="${p.name}">${p.team}</option>`)
+      .join('');
+  }
+}
+
+function findAtBatPlayer() {
+  const q = (document.getElementById('atbat-player-input').value || '').trim().toLowerCase();
+  if (!q) return null;
+  return masterPlayers.find(p => p.name.toLowerCase() === q)
+      || masterPlayers.find(p => p.name.toLowerCase().includes(q));
+}
+
+function isHitEvent(eventText='') {
+  return /single|double|triple|home run/i.test(eventText);
+}
+
+function isOutLikeEvent(eventText='') {
+  return /out|groundout|flyout|lineout|strikeout|forceout|pop out|fielders choice|double play|sac/i.test(eventText);
+}
+
+async function safeFetchGameFeed(gamePk) {
+  // MLB's live feed is on v1.1. Some older code used /api/v1, which returns 404.
+  // Try the correct endpoint first, then fall back instead of breaking the At-Bat tab.
+  try {
+    return await fetchJSON(`${API_V11}/game/${gamePk}/feed/live`);
+  } catch (e1) {
+    try {
+      return await fetchJSON(`${API}/game/${gamePk}/feed/live`);
+    } catch (e2) {
+      return { __feedError: e1.message || e2.message || 'Live feed unavailable' };
+    }
+  }
+}
+
+function renderAtBatFallback(out, p, matchup, message='Live AB feed unavailable') {
+  const pitcherName = matchup?.pitcher?.fullName || matchup?.pitcher?.name || matchup?.pitcher || 'Projected pitcher unavailable';
+  const gameStatus = matchup?.gameStatus || 'Game status unavailable';
+  const opp = matchup?.oppTeamName || 'Opponent unavailable';
+  out.innerHTML = `
+    <div class="section-header">
+      <div>
+        <div class="section-title">${playerNameWithInjury(p)} — At-Bat Mode</div>
+        <div class="streak-meta">Fallback view · live PA feed did not load</div>
+      </div>
+    </div>
+    <div class="ab-card-grid">
+      <div class="ab-card"><div class="ab-card-title">Player</div><div class="ab-card-val" style="font-size:20px">${playerNameWithInjury(p)}</div></div>
+      <div class="ab-card"><div class="ab-card-title">Team</div><div class="ab-card-val">${p.team || '—'}</div></div>
+      <div class="ab-card"><div class="ab-card-title">Opponent</div><div class="ab-card-val" style="font-size:20px">${opp}</div></div>
+      <div class="ab-card"><div class="ab-card-title">Pitcher</div><div class="ab-card-val" style="font-size:20px">${pitcherName}</div></div>
+    </div>
+    <div class="state-box" style="min-height:120px">
+      <div class="msg">${message}<br>Showing player/game context instead of a blank error.<br>Status: ${gameStatus}</div>
+    </div>
+    <div class="tool-hint">Fix applied: the app now tries MLB v1.1 live feed first and falls back gracefully if MLB blocks or does not have the feed.</div>
+  `;
+}
+
+async function renderAtBatMode() {
+  const out = document.getElementById('atbat-results');
+  const p = findAtBatPlayer();
+  if (!p) {
+    out.innerHTML = `<div class="state-box"><div class="msg">Pick a valid player from the list.</div></div>`;
+    return;
+  }
+
+  const matchup = teamPitcherMap[p.teamId];
+  if (!matchup?.gamePk) {
+    out.innerHTML = `<div class="state-box"><div class="msg">${playerNameWithInjury(p)} does not have a loaded game today.</div></div>`;
+    return;
+  }
+
+  out.innerHTML = `<div class="state-box"><div class="spinner"></div><div class="msg">Loading live at-bat sequence…</div></div>`;
+  try {
+    const feed = await safeFetchGameFeed(matchup.gamePk);
+    if (feed.__feedError) {
+      renderAtBatFallback(out, p, matchup, `Could not load MLB live AB feed (${feed.__feedError}).`);
+      return;
+    }
+    const game = feed.gameData || {};
+    const live = feed.liveData || {};
+    const plays = live.plays?.allPlays || [];
+    const playerPlays = plays.filter(pl => pl.matchup?.batter?.id === p.id && pl.about?.isComplete);
+
+    const pa = playerPlays.map((pl, idx) => {
+      const event = pl.result?.event || pl.result?.description || 'PA';
+      const hit = isHitEvent(event);
+      const outLike = !hit && isOutLikeEvent(event);
+      const inning = `${pl.about?.halfInning === 'bottom' ? 'Bot' : 'Top'} ${pl.about?.inning || ''}`;
+      return { idx:idx+1, event, hit, outLike, inning };
+    });
+
+    const hitsToday = pa.filter(x => x.hit).length;
+    const outsToday = pa.filter(x => x.outLike).length;
+    const status = hitsToday > 0 ? '✅ Hit recorded / streak extended if active' : (pa.length ? '⏳ No hit yet' : '⏳ No plate appearances yet');
+    const statusClass = hitsToday > 0 ? 'good' : 'wait';
+
+    out.innerHTML = `
+      <div class="section-header">
+        <div>
+          <div class="section-title">${playerNameWithInjury(p)} — At-Bat Mode</div>
+          <div class="streak-meta">${getTeamAbb(game.teams?.away)} @ ${getTeamAbb(game.teams?.home)} · ${game.status?.abstractGameState || 'Game'}</div>
+        </div>
+      </div>
+      <div class="ab-card-grid">
+        <div class="ab-card"><div class="ab-card-title">Current PA</div><div class="ab-card-val">${pa.length}</div></div>
+        <div class="ab-card"><div class="ab-card-title">Hits Today</div><div class="ab-card-val" style="color:var(--green)">${hitsToday}</div></div>
+        <div class="ab-card"><div class="ab-card-title">Out-like PAs</div><div class="ab-card-val" style="color:var(--hot)">${outsToday}</div></div>
+        <div class="ab-card"><div class="ab-card-title">Status</div><div style="margin-top:8px"><span class="status-chip ${statusClass}">${status}</span></div></div>
+      </div>
+      <div class="modal-section-title">Plate Appearance Sequence</div>
+      <div class="ab-seq">
+        ${pa.length ? pa.map(x => `
+          <div class="ab-pill ${x.hit ? 'hit' : x.outLike ? 'out' : ''}">
+            <div class="ab-num">PA ${x.idx} · ${x.inning}</div>
+            <div class="ab-result">${x.hit ? '✅' : x.outLike ? '❌' : '•'} ${x.event}</div>
+          </div>
+        `).join('') : `<div class="state-box" style="min-height:80px"><div class="msg">No completed plate appearances yet.</div></div>`}
+      </div>
+      <div class="tool-hint">Next upgrade: attach live odds before each PA and show model probability shifts after PA1/PA2/PA3.</div>
+    `;
+  } catch(e) {
+    renderAtBatFallback(out, p, matchup, `Could not load MLB live AB feed (${e.message}).`);
+  }
+}
+
 
 // ─── BOOT ─────────────────────────────────────────────────
 loadData();
